@@ -72,17 +72,3 @@ hvigorw assembleHap --mode module -p product=default
 | [docs/PRD.md](docs/PRD.md) | 产品需求文档 |
 | [docs/mvp.md](docs/mvp.md) | 功能范围与优先级 |
 | [docs/TDD.md](docs/TDD.md) | 技术设计（架构、NAPI 接口、数据流、线程模型） |
-
-## 路线图
-
-| 里程碑 | 目标 |
-|--------|------|
-| M1 | llama.cpp 在 OHOS 环境跑通简单前向推理 |
-| M2 | NAPI 桥接完成，ArkTS 能加载模型并流式获取 token |
-| M3 | 模型管理 + 对话 UI，形成可用最小闭环 |
-| M4 | 参数配置、会话历史、性能监控，达到 MVP 验收标准 |
-| M5 | Serve 上线，支持 OpenAI 兼容接口与局域网访问 |
-
-## 许可
-
-待定。
