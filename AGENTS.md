@@ -66,12 +66,6 @@ Harmony_gguf/
 | `docs/mvp.md` | 功能范围与优先级（P0/P1/P2） |
 | `docs/TDD.md` | 技术设计（架构、NAPI 接口、数据流、线程模型、Serve） |
 | `docs/PLAN-35DAY.md` | 35 天开发计划（阶段 0–5、里程碑 M1–M5、三角色分工） |
-| `docs/HLD.md` | 概要设计（模块划分、关键决策、运行/部署视图） |
-| `docs/LLD.md` | 详细设计（各模块内部结构、流程时序、错误处理） |
-| `docs/DBD.md` | 数据库设计（RDB 表结构、Preferences 键值） |
-| `docs/API.md` | 接口文档（NAPI + Serve HTTP/SSE、数据结构、错误码） |
-| `docs/PORTING.md` | llama.cpp 移植文件清单、裁剪边界、测试启用方式 |
-| `prompt.md` | 三角色分工（A 引擎 / B 应用 / C 质量） |
 
 ## 6. 开发约定
 
