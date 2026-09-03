@@ -1,0 +1,423 @@
+[2026-08-31T18:54:31.554] [DEBUG] debug-file - env: nodejsVersion=v24.14.1
+[2026-08-31T18:54:31.576] [DEBUG] debug-file - env: daemon=true
+[2026-08-31T18:54:31.555] [DEBUG] debug-file - env: hvigor-config.json5 content = {
+  modelVersion: '26.0.0',
+  dependencies: {},
+  execution: {},
+  logging: {},
+  debugging: {},
+  nodeOptions: {}
+}
+[2026-08-31T18:54:31.989] [DEBUG] debug-file - hvigor java daemon: Starting java daemon. jvmXmxValue=512m, jarPath=D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\lib\hvigor-java-daemon.jar
+[2026-08-31T18:54:31.990] [DEBUG] debug-file - hvigor java daemon: Read cache file, 
+    port=45051, pid=17644, sessionId exists=true
+[2026-08-31T18:54:32.007] [DEBUG] debug-file - hvigor java daemon: tryConnect failed, Error: connect ECONNREFUSED 127.0.0.1:45051, will start new daemon
+[2026-08-31T18:54:32.017] [DEBUG] debug-file - java daemon started at port 45050 pid 13668
+[2026-08-31T18:54:32.046] [DEBUG] debug-file - session manager: set active socket. socketId=3yzTpnJFQQXwGLD8AAAB
+[2026-08-31T18:54:32.471] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-08-31T18:54:32.477] [DEBUG] debug-file - Since there is no instance or instance is terminated, create a new worker pool.
+[2026-08-31T18:54:32.477] [DEBUG] debug-file - Worker pool is initialized with config:  {
+  minPoolNum: 2,
+  maxPoolNum: undefined,
+  maxCoreSize: undefined,
+  cacheCapacity: undefined,
+  cacheTtl: undefined
+}
+[2026-08-31T18:54:32.478] [DEBUG] debug-file - Create  resident worker with id: 0.
+[2026-08-31T18:54:32.479] [DEBUG] debug-file - Create  resident worker with id: 1.
+[2026-08-31T18:54:32.481] [DEBUG] debug-file - Workers' log level updated to INFO
+[2026-08-31T18:54:32.488] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined,
+  customizedParam: undefined
+}
+[2026-08-31T18:54:32.488] [DEBUG] debug-file - Since current hvigor version 6.26.4 differs from last hvigor version 
+      undefined, delete file-cache.json and task-cache.json.
+[2026-08-31T18:54:32.490] [DEBUG] debug-file - Cache service initialization finished in 2 ms 
+[2026-08-31T18:54:32.492] [DEBUG] debug-file - hvigorfile, resolving D:\Project\Harmony_gguf\hvigorfile.ts
+[2026-08-31T18:54:33.588] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-08-31T18:54:33.589] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-08-31T18:54:33.589] [DEBUG] debug-file - Starting plugin build process
+[2026-08-31T18:54:33.589] [DEBUG] debug-file - App plugin prepare start...
+[2026-08-31T18:54:33.589] [DEBUG] debug-file - App plugin prepare end...
+[2026-08-31T18:54:33.589] [DEBUG] debug-file - App plugin creating...
+[2026-08-31T18:54:33.713] [DEBUG] debug-file - App plugin register hook start...
+[2026-08-31T18:54:33.714] [DEBUG] debug-file - App plugin register hook end...
+[2026-08-31T18:54:33.714] [DEBUG] debug-file - Plugin build process completed
+[2026-08-31T18:54:33.714] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-08-31T18:54:33.715] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-08-31T18:54:33.715] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-08-31T18:54:33.715] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-08-31T18:54:33.716] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-08-31T18:54:33.721] [DEBUG] debug-file - No signingConfig found, initRemoteHspCache failed.
+[2026-08-31T18:54:33.723] [DEBUG] debug-file - Local scan or download HarmonyOS sdk components toolchains,ets,js,native,previewer
+[2026-08-31T18:54:33.725] [DEBUG] debug-file - Local scan or download hmscore sdk components toolchains,ets,native
+[2026-08-31T18:54:33.728] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-08-31T18:54:33.754] [DEBUG] debug-file - Sdk init in 32 ms 
+[2026-08-31T18:54:33.759] [DEBUG] debug-file - Project task initialization takes 4 ms 
+[2026-08-31T18:54:33.759] [DEBUG] debug-file - hvigorfile, begin to bind custom plugins...
+[2026-08-31T18:54:33.759] [DEBUG] debug-file - hvigorfile, no custom plugins were found in D:\Project\Harmony_gguf\hvigorfile.ts
+[2026-08-31T18:54:33.759] [DEBUG] debug-file - hvigorfile, resolve finished D:\Project\Harmony_gguf\hvigorfile.ts
+[2026-08-31T18:54:33.760] [DEBUG] debug-file - hvigorfile, resolving D:\Project\Harmony_gguf\entry\hvigorfile.ts
+[2026-08-31T18:54:33.763] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-08-31T18:54:33.763] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-08-31T18:54:33.764] [DEBUG] debug-file - Starting plugin build process
+[2026-08-31T18:54:33.764] [DEBUG] debug-file - Hap plugin creating...
+[2026-08-31T18:54:33.764] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\hooks\cangjie-register.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\strategy\stage-init-strategy.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\builder\abstract-plugin-builder.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\builder\app-plugin-builder.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\index.js
+- D:\Project\Harmony_gguf\hvigorfile.ts
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\boot\index.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-08-31T18:54:33.772] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-08-31T18:54:33.772] [DEBUG] debug-file - Target 'default' config initialized
+[2026-08-31T18:54:33.772] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Target 'default' config initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-08-31T18:54:33.773] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-08-31T18:54:33.774] [DEBUG] debug-file - Target 'default' config initialized
+[2026-08-31T18:54:33.774] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-08-31T18:54:33.774] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-08-31T18:54:33.774] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-08-31T18:54:33.774] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-08-31T18:54:33.774] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - Module entry task initialization takes 3 ms 
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - Hap plugin register hook start...
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - Hap plugin register hook end...
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - Plugin build process completed
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - hvigorfile, begin to bind custom plugins...
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - hvigorfile, no custom plugins were found in D:\Project\Harmony_gguf\entry\hvigorfile.ts
+[2026-08-31T18:54:33.777] [DEBUG] debug-file - hvigorfile, resolve finished D:\Project\Harmony_gguf\entry\hvigorfile.ts
+[2026-08-31T18:54:33.798] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 21 ms 
+[2026-08-31T18:54:33.798] [DEBUG] debug-file - project has submodules:entry
+[2026-08-31T18:54:33.800] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-08-31T18:54:33.802] [DEBUG] debug-file - load to the disk finished
+[2026-08-31T18:54:33.803] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-08-31T18:54:33.832] [DEBUG] debug-file - Module Harmony_gguf Collected Dependency: 
+[2026-08-31T18:54:33.832] [DEBUG] debug-file - Module Harmony_gguf's total dependency: 0
+[2026-08-31T18:54:33.833] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-08-31T18:54:33.836] [DEBUG] debug-file - Module entry Collected Dependency: D:\Project\Harmony_gguf\entry\src\main\cpp\types\libentry
+[2026-08-31T18:54:33.836] [DEBUG] debug-file - Module entry's total dependency: 1
+[2026-08-31T18:54:33.838] [DEBUG] debug-file - Configuration phase cost:1 s 349 ms 
+[2026-08-31T18:54:33.841] [DEBUG] debug-file - Configuration task cost before running: 1 s 358 ms 
+[2026-08-31T18:54:33.841] [DEBUG] debug-file - Executing task :entry:clean
+[2026-08-31T18:54:33.841] [DEBUG] debug-file - clean: Worker pool is inactive.
+[2026-08-31T18:54:33.842] [DEBUG] debug-file - entry : clean cost memory 0.1120758056640625
+[2026-08-31T18:54:33.843] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 360 ms 
+[2026-08-31T18:54:33.843] [INFO] debug-file - Finished :entry:clean... after 2 ms 
+[2026-08-31T18:54:33.843] [DEBUG] debug-file - Executing task ::clean
+[2026-08-31T18:54:33.843] [DEBUG] debug-file - clean: Worker pool is inactive.
+[2026-08-31T18:54:33.843] [DEBUG] debug-file - Harmony_gguf : clean cost memory 0.02446746826171875
+[2026-08-31T18:54:33.843] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 361 ms 
+[2026-08-31T18:54:33.843] [INFO] debug-file - Finished ::clean... after 1 ms 
+[2026-08-31T18:54:33.844] [DEBUG] debug-file - Executing task :entry:init
+[2026-08-31T18:54:33.844] [DEBUG] debug-file - entry : init cost memory 0.017669677734375
+[2026-08-31T18:54:33.844] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 361 ms 
+[2026-08-31T18:54:33.844] [INFO] debug-file - Finished :entry:init... after 1 ms 
+[2026-08-31T18:54:33.844] [DEBUG] debug-file - Executing task ::init
+[2026-08-31T18:54:33.844] [DEBUG] debug-file - Harmony_gguf : init cost memory 0.0143585205078125
+[2026-08-31T18:54:33.844] [DEBUG] debug-file - runTaskFromQueue task cost before running: 1 s 362 ms 
+[2026-08-31T18:54:33.844] [INFO] debug-file - Finished ::init... after 1 ms 
+[2026-08-31T18:54:33.846] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-08-31T18:54:33.846] [DEBUG] debug-file - Obtain build option for module 'entry' target 'ohosTest'in this build.
+[2026-08-31T18:54:33.851] [DEBUG] debug-file - Cleanup worker 0.
+[2026-08-31T18:54:33.854] [DEBUG] debug-file - session manager: send message to worker process. WorkerThreadId: 0, data: {"type":"hvigor_failed","reason":"Server has disconnected."}
+[2026-08-31T18:54:33.854] [DEBUG] debug-file - session manager: send message to worker process. WorkerThreadId: 0, data: {"type":"CloseWatch","reason":"Server has disconnected."}
+[2026-08-31T18:54:33.852] [DEBUG] debug-file - Cleanup worker 1.
+[2026-08-31T18:54:33.853] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-08-31T18:54:33.854] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-08-31T18:54:33.854] [DEBUG] debug-file - ABORT_WORK sent to workers.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - worker[0] exits with exit code 1.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - worker[1] exits with exit code 1.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - Worker 0 has been cleaned up.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - Current idle worker size: 0.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - Current resident worker size: 0.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - Worker 1 has been cleaned up.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - Current idle worker size: 0.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - Current resident worker size: 0.
+[2026-08-31T18:54:33.855] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-08-31T18:54:34.549] [DEBUG] debug-file - session manager: set active socket. socketId=bOQMqMng3UNewNhQAAAD
+[2026-08-31T18:54:34.561] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-08-31T18:54:34.565] [DEBUG] debug-file - Workers' log level updated to INFO
+[2026-08-31T18:54:34.567] [DEBUG] debug-file - Hvigor init with startParameters:{
+  hvigorfileTypeCheck: false,
+  parallelExecution: true,
+  incrementalExecution: true,
+  printStackTrace: false,
+  daemon: true,
+  analyze: 0,
+  logLevel: Level { level: 20000, levelStr: 'INFO', colour: 'green' },
+  optimizationStrategy: 'memory',
+  hotCompile: undefined,
+  hotReloadBuild: undefined,
+  customizedParam: undefined
+}
+[2026-08-31T18:54:34.568] [DEBUG] debug-file - Cache service initialization finished in 1 ms 
+[2026-08-31T18:54:34.568] [DEBUG] debug-file - hvigorfile, resolving D:\Project\Harmony_gguf\hvigorfile.ts
+[2026-08-31T18:54:34.573] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-08-31T18:54:34.573] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-08-31T18:54:34.573] [DEBUG] debug-file - Starting plugin build process
+[2026-08-31T18:54:34.574] [DEBUG] debug-file - App plugin prepare start...
+[2026-08-31T18:54:34.574] [DEBUG] debug-file - App plugin prepare end...
+[2026-08-31T18:54:34.574] [DEBUG] debug-file - App plugin creating...
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - App plugin register hook start...
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - App plugin register hook end...
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - Plugin build process completed
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - Start initialize project's product build option map with build mode debug.
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - Picking option from product 'default' with build mode 'debug'.
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - Product 'default' build option initialized
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - End initialize project's product build option map with build mode 'debug'.
+[2026-08-31T18:54:34.577] [DEBUG] debug-file - Obtain build option for product 'default'in this build.
+[2026-08-31T18:54:34.579] [DEBUG] debug-file - No signingConfig found, initRemoteHspCache failed.
+[2026-08-31T18:54:34.580] [DEBUG] debug-file - Start recording SDK configuration permission data.
+[2026-08-31T18:54:34.600] [DEBUG] debug-file - Sdk init in 21 ms 
+[2026-08-31T18:54:34.602] [DEBUG] debug-file - Project task initialization takes 3 ms 
+[2026-08-31T18:54:34.603] [DEBUG] debug-file - hvigorfile, begin to bind custom plugins...
+[2026-08-31T18:54:34.603] [DEBUG] debug-file - hvigorfile, no custom plugins were found in D:\Project\Harmony_gguf\hvigorfile.ts
+[2026-08-31T18:54:34.603] [DEBUG] debug-file - hvigorfile, resolve finished D:\Project\Harmony_gguf\hvigorfile.ts
+[2026-08-31T18:54:34.603] [DEBUG] debug-file - hvigorfile, resolving D:\Project\Harmony_gguf\entry\hvigorfile.ts
+[2026-08-31T18:54:34.605] [DEBUG] debug-file - hvigorfile, require result:  { default: { plugins: [] } }
+[2026-08-31T18:54:34.606] [DEBUG] debug-file - hvigorfile, binding system plugins null
+[2026-08-31T18:54:34.606] [DEBUG] debug-file - Starting plugin build process
+[2026-08-31T18:54:34.606] [DEBUG] debug-file - Hap plugin creating...
+[2026-08-31T18:54:34.606] [DEBUG] debug-file - failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'
+Require stack:
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\hooks\cangjie-register.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\strategy\stage-init-strategy.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\builder\abstract-plugin-builder.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\builder\app-plugin-builder.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\src\plugin\factory\plugin-factory.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor-ohos-plugin\index.js
+- D:\Project\Harmony_gguf\hvigorfile.ts
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\internal\lifecycle\configuration.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\boot\index.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\daemon\cluster\worker-process-lifecycle.js
+- D:\SoftWare\DevecoStudio\tools\hvigor\hvigor\src\base\daemon\process\daemon-process-boot-script.js
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Target 'default' config initialized
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=release
+[2026-08-31T18:54:34.608] [DEBUG] debug-file - Target 'default' config initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Start initialize module-target build option map, moduleName=entry, buildMode=debug
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Target 'default' config initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Target 'ohosTest' config initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Module 'entry' target 'default' build option initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Module 'entry' target 'ohosTest' build option initialized
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - End initialize module-target build option map, moduleName=entry
+[2026-08-31T18:54:34.609] [DEBUG] debug-file - Obtain build option for module 'entry' target 'default'in this build.
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - Module entry task initialization takes 2 ms 
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - Hap plugin register hook start...
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - Hap plugin register hook end...
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - Plugin build process completed
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - hvigorfile, begin to bind custom plugins...
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - hvigorfile, no custom plugins were found in D:\Project\Harmony_gguf\entry\hvigorfile.ts
+[2026-08-31T18:54:34.611] [DEBUG] debug-file - hvigorfile, resolve finished D:\Project\Harmony_gguf\entry\hvigorfile.ts
+[2026-08-31T18:54:34.636] [DEBUG] debug-file - hvigorfile, resolve hvigorfile dependencies in 25 ms 
+[2026-08-31T18:54:34.636] [DEBUG] debug-file - project has submodules:entry
+[2026-08-31T18:54:34.638] [DEBUG] debug-file - start to load updatedOhPackageInfo to the disk
+[2026-08-31T18:54:34.641] [DEBUG] debug-file - load to the disk finished
+[2026-08-31T18:54:34.642] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-08-31T18:54:34.647] [DEBUG] debug-file - Module Harmony_gguf Collected Dependency: 
+[2026-08-31T18:54:34.647] [DEBUG] debug-file - Module Harmony_gguf's total dependency: 0
+[2026-08-31T18:54:34.648] [DEBUG] debug-file - Start to initialize dependency information.
+[2026-08-31T18:54:34.650] [DEBUG] debug-file - Module entry Collected Dependency: D:\Project\Harmony_gguf\entry\src\main\cpp\types\libentry
+[2026-08-31T18:54:34.650] [DEBUG] debug-file - Module entry's total dependency: 1
+[2026-08-31T18:54:34.651] [DEBUG] debug-file - Configuration phase cost:84 ms 
+[2026-08-31T18:54:34.652] [DEBUG] debug-file - Configuration task cost before running: 87 ms 
+[2026-08-31T18:54:34.657] [DEBUG] debug-file - Executing task :entry:default@PreBuild
+[2026-08-31T18:54:34.660] [DEBUG] debug-file - Task 'entry:default@PreBuild' cost while wrapping incremental declarations: 1 ms 
+[2026-08-31T18:54:34.862] [DEBUG] debug-file - current product is not Atomic service.
+[2026-08-31T18:54:34.863] [DEBUG] debug-file - Use tool [win32: JAVA_HOME, CLASSPATH]
+ [
+  { JAVA_HOME: 'D:\\SoftWare\\DevecoStudio\\jbr' },
+  { CLASSPATH: undefined }
+]
+[2026-08-31T18:54:34.863] [DEBUG] debug-file - Use tool [win32: NODE_HOME]
+ [ { NODE_HOME: 'D:\\SoftWare\\DevecoStudio\\tools\\node' } ]
+[2026-08-31T18:54:34.863] [DEBUG] debug-file - entry : default@PreBuild cost memory 2.4920883178710938
+[2026-08-31T18:54:34.863] [DEBUG] debug-file - runTaskFromQueue task cost before running: 299 ms 
+[2026-08-31T18:54:34.865] [INFO] debug-file - Finished :entry:default@PreBuild... after 207 ms 
+[2026-08-31T18:54:34.866] [DEBUG] debug-file - Executing task :entry:default@ConfigureCmake
+[2026-08-31T18:54:34.872] [DEBUG] debug-file - entry : default@ConfigureCmake cost memory 0.0626373291015625
+[2026-08-31T18:54:34.873] [DEBUG] debug-file - runTaskFromQueue task cost before running: 308 ms 
+[2026-08-31T18:54:34.873] [INFO] debug-file - Finished :entry:default@ConfigureCmake... after 7 ms 
+[2026-08-31T18:54:34.875] [DEBUG] debug-file - Executing task :entry:default@BuildNativeWithCmake
+[2026-08-31T18:54:34.881] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'D:\\SoftWare\\DevecoStudio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HD:\\Project\\Harmony_gguf\\entry\\src\\main\\cpp',
+  '-BD:\\Project\\Harmony_gguf\\entry\\.cxx\\default\\default\\debug\\arm64-v8a',
+  '-DOHOS_ARCH=arm64-v8a',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=D:\\Project\\Harmony_gguf\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\arm64-v8a',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=D:\\SoftWare\\DevecoStudio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=arm64-v8a',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=D:\\SoftWare\\DevecoStudio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.bisheng.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=D:\\SoftWare\\DevecoStudio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=D:\\Project\\Harmony_gguf\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a',
+  '-DPACKAGE_FIND_FILE=D:\\Project\\Harmony_gguf\\entry\\.cxx\\default\\default\\debug\\hvigor\\arm64-v8a\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=D:\\SoftWare\\DevecoStudio\\sdk\\default\\hms\\native'
+]
+[2026-08-31T18:54:34.884] [DEBUG] debug-file - Clean CMakeCache.txt due to outdated CMake configuration.
+[2026-08-31T18:54:34.885] [DEBUG] debug-file - - no fingerprint file, will remove stale cache CMakeCache.txt
+[2026-08-31T18:54:34.887] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] is submitted.
+[2026-08-31T18:54:34.887] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] is pushed to ready queue.
+[2026-08-31T18:54:34.888] [DEBUG] debug-file - A work dispatched to worker[15] failed because unable to get work from ready queue.
+[2026-08-31T18:54:34.888] [DEBUG] debug-file - Create  resident worker with id: 14.
+[2026-08-31T18:54:34.889] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] has been dispatched to worker[14].
+[2026-08-31T18:54:34.889] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] is dispatched.
+[2026-08-31T18:54:34.890] [DEBUG] debug-file - Use tool [Cmake]
+ [
+  'D:\\SoftWare\\DevecoStudio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\cmake.exe',
+  '-HD:\\Project\\Harmony_gguf\\entry\\src\\main\\cpp',
+  '-BD:\\Project\\Harmony_gguf\\entry\\.cxx\\default\\default\\debug\\x86_64',
+  '-DOHOS_ARCH=x86_64',
+  '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=D:\\Project\\Harmony_gguf\\entry\\build\\default\\intermediates\\cmake\\default\\obj\\x86_64',
+  '-DCMAKE_BUILD_TYPE=Debug',
+  '-DOHOS_SDK_NATIVE=D:\\SoftWare\\DevecoStudio\\sdk\\default\\openharmony\\native',
+  '-DCMAKE_SYSTEM_NAME=OHOS',
+  '-DCMAKE_OHOS_ARCH_ABI=x86_64',
+  '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+  '-DCMAKE_TOOLCHAIN_FILE=D:\\SoftWare\\DevecoStudio\\sdk\\default\\hms\\native\\build\\cmake\\hmos.toolchain.bisheng.cmake',
+  '-GNinja',
+  '-DCMAKE_MAKE_PROGRAM=D:\\SoftWare\\DevecoStudio\\sdk\\default\\openharmony\\native\\build-tools\\cmake\\bin\\ninja.exe',
+  '-DCMAKE_FIND_ROOT_PATH=D:\\Project\\Harmony_gguf\\entry\\.cxx\\default\\default\\debug\\hvigor\\x86_64',
+  '-DPACKAGE_FIND_FILE=D:\\Project\\Harmony_gguf\\entry\\.cxx\\default\\default\\debug\\hvigor\\x86_64\\summary.cmake',
+  '--no-warn-unused-cli',
+  '-DHMOS_SDK_NATIVE=D:\\SoftWare\\DevecoStudio\\sdk\\default\\hms\\native'
+]
+[2026-08-31T18:54:34.897] [DEBUG] debug-file - Clean CMakeCache.txt due to outdated CMake configuration.
+[2026-08-31T18:54:34.898] [DEBUG] debug-file - - no fingerprint file, will remove stale cache CMakeCache.txt
+[2026-08-31T18:54:34.900] [DEBUG] debug-file - default@BuildNativeWithCmake work[1] is submitted.
+[2026-08-31T18:54:34.900] [DEBUG] debug-file - default@BuildNativeWithCmake work[1] is pushed to ready queue.
+[2026-08-31T18:54:34.900] [DEBUG] debug-file - A work dispatched to worker[15] failed because unable to get work from ready queue.
+[2026-08-31T18:54:34.900] [DEBUG] debug-file - A work dispatched to worker[14] failed because of worker busy.
+[2026-08-31T18:54:34.900] [DEBUG] debug-file - Create  resident worker with id: 13.
+[2026-08-31T18:54:34.901] [DEBUG] debug-file - default@BuildNativeWithCmake work[1] has been dispatched to worker[13].
+[2026-08-31T18:54:34.901] [DEBUG] debug-file - default@BuildNativeWithCmake work[1] is dispatched.
+[2026-08-31T18:54:34.901] [DEBUG] debug-file - entry : default@BuildNativeWithCmake cost memory -14.863471984863281
+[2026-08-31T18:54:35.766] [DEBUG] debug-file - Not searching for unused variables given on the command line.
+
+[2026-08-31T18:54:35.771] [DEBUG] debug-file - Not searching for unused variables given on the command line.
+
+[2026-08-31T18:54:35.934] [DEBUG] debug-file - -- The C compiler identification is Clang 15.0.4
+
+[2026-08-31T18:54:35.937] [DEBUG] debug-file - -- The C compiler identification is Clang 15.0.4
+
+[2026-08-31T18:54:36.135] [DEBUG] debug-file - -- The CXX compiler identification is Clang 15.0.4
+
+[2026-08-31T18:54:36.137] [DEBUG] debug-file - -- The CXX compiler identification is Clang 15.0.4
+
+[2026-08-31T18:54:36.361] [DEBUG] debug-file - -- Detecting C compiler ABI info
+
+[2026-08-31T18:54:36.373] [DEBUG] debug-file - -- Detecting C compiler ABI info
+
+[2026-08-31T18:54:36.964] [DEBUG] debug-file - -- Detecting C compiler ABI info - done
+
+[2026-08-31T18:54:36.972] [DEBUG] debug-file - -- Detecting C compiler ABI info - done
+
+[2026-08-31T18:54:36.989] [DEBUG] debug-file - -- Check for working C compiler: D:/SoftWare/DevecoStudio/sdk/default/hms/native/BiSheng/bin/clang.exe - skipped
+
+[2026-08-31T18:54:36.990] [DEBUG] debug-file - -- Detecting C compile features
+
+[2026-08-31T18:54:36.990] [DEBUG] debug-file - -- Detecting C compile features - done
+
+[2026-08-31T18:54:36.996] [DEBUG] debug-file - -- Check for working C compiler: D:/SoftWare/DevecoStudio/sdk/default/hms/native/BiSheng/bin/clang.exe - skipped
+
+[2026-08-31T18:54:36.997] [DEBUG] debug-file - -- Detecting C compile features
+
+[2026-08-31T18:54:36.997] [DEBUG] debug-file - -- Detecting C compile features - done
+
+[2026-08-31T18:54:37.076] [DEBUG] debug-file - -- Detecting CXX compiler ABI info
+
+[2026-08-31T18:54:37.086] [DEBUG] debug-file - -- Detecting CXX compiler ABI info
+
+[2026-08-31T18:54:37.586] [DEBUG] debug-file - -- Detecting CXX compiler ABI info - done
+
+[2026-08-31T18:54:37.587] [DEBUG] debug-file - -- Detecting CXX compiler ABI info - done
+
+[2026-08-31T18:54:37.606] [DEBUG] debug-file - -- Check for working CXX compiler: D:/SoftWare/DevecoStudio/sdk/default/hms/native/BiSheng/bin/clang++.exe - skipped
+
+[2026-08-31T18:54:37.606] [DEBUG] debug-file - -- Detecting CXX compile features
+
+[2026-08-31T18:54:37.607] [DEBUG] debug-file - -- Check for working CXX compiler: D:/SoftWare/DevecoStudio/sdk/default/hms/native/BiSheng/bin/clang++.exe - skipped
+
+[2026-08-31T18:54:37.607] [DEBUG] debug-file - -- Detecting CXX compile features
+
+[2026-08-31T18:54:37.607] [DEBUG] debug-file - -- Detecting CXX compile features - done
+
+[2026-08-31T18:54:37.608] [DEBUG] debug-file - -- Detecting CXX compile features - done
+
+[2026-08-31T18:54:37.614] [DEBUG] debug-file - -- Configuring done (1.9s)
+
+[2026-08-31T18:54:37.627] [DEBUG] debug-file - -- Generating done (0.0s)
+
+[2026-08-31T18:54:37.637] [DEBUG] debug-file - -- Configuring done (1.9s)
+
+[2026-08-31T18:54:37.654] [DEBUG] debug-file - -- Generating done (0.0s)
+
+[2026-08-31T18:54:37.773] [DEBUG] debug-file - -- Build files have been written to: D:/Project/Harmony_gguf/entry/.cxx/default/default/debug/x86_64
+
+[2026-08-31T18:54:37.781] [DEBUG] debug-file - worker[13] has one work done.
+[2026-08-31T18:54:37.795] [DEBUG] debug-file - -- Build files have been written to: D:/Project/Harmony_gguf/entry/.cxx/default/default/debug/arm64-v8a
+
+[2026-08-31T18:54:37.805] [DEBUG] debug-file - worker[14] has one work done.
+[2026-08-31T18:54:37.853] [DEBUG] debug-file - default@BuildNativeWithCmake work[0] done.
+[2026-08-31T18:54:37.854] [DEBUG] debug-file - A work dispatched to worker[14] failed because unable to get work from ready queue.
+[2026-08-31T18:54:37.854] [DEBUG] debug-file - default@BuildNativeWithCmake work[1] done.
+[2026-08-31T18:54:37.854] [DEBUG] debug-file - A work dispatched to worker[13] failed because unable to get work from ready queue.
+[2026-08-31T18:54:37.854] [INFO] debug-file - Finished :entry:default@BuildNativeWithCmake... after 2 s 116 ms 
+[2026-08-31T18:54:37.855] [DEBUG] debug-file - Executing task :entry:compileNative
+[2026-08-31T18:54:37.855] [DEBUG] debug-file - entry : compileNative cost memory 0.0129852294921875
+[2026-08-31T18:54:37.855] [DEBUG] debug-file - runTaskFromQueue task cost before running: 3 s 290 ms 
+[2026-08-31T18:54:37.855] [INFO] debug-file - Finished :entry:compileNative... after 1 ms 
+[2026-08-31T18:54:37.856] [INFO] debug-file - BUILD SUCCESSFUL in 3 s 291 ms 
+[2026-08-31T18:54:37.858] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\AppScope\app.json5 cache by regenerate.
+[2026-08-31T18:54:37.859] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\entry\src\main\module.json5 cache by regenerate.
+[2026-08-31T18:54:37.859] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\build-profile.json5 cache by regenerate.
+[2026-08-31T18:54:37.859] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\entry\build-profile.json5 cache by regenerate.
+[2026-08-31T18:54:37.859] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\entry\src\main\resources\base\profile\main_pages.json cache by regenerate.
+[2026-08-31T18:54:37.859] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\hvigor\hvigor-config.json5 cache by regenerate.
+[2026-08-31T18:54:37.859] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\entry\src\mock\mock-config.json5 cache by regenerate.
+[2026-08-31T18:54:37.860] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\entry\oh-package.json5 cache by regenerate.
+[2026-08-31T18:54:37.860] [DEBUG] debug-file - Update task entry:default@PreBuild input file:D:\Project\Harmony_gguf\oh-package.json5 cache by regenerate.
+[2026-08-31T18:54:37.860] [DEBUG] debug-file - Incremental task entry:default@PreBuild post-execution cost:3 ms .
+[2026-08-31T18:54:37.867] [DEBUG] debug-file - hvigor build process will be closed.
+[2026-08-31T18:54:37.876] [DEBUG] debug-file - session manager: send message to worker process. WorkerThreadId: 0, data: {"type":"hvigor_failed","reason":"Server has disconnected."}
+[2026-08-31T18:54:37.877] [DEBUG] debug-file - session manager: send message to worker process. WorkerThreadId: 0, data: {"type":"CloseWatch","reason":"Server has disconnected."}
+[2026-08-31T18:54:37.876] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
+[2026-08-31T18:54:37.876] [DEBUG] debug-file - ABORT_WORK sent to workers.
+[2026-08-31T18:54:37.877] [DEBUG] debug-file - watch worker: worker id should be larger than 0. Nothing will be sent to any worker thread.
