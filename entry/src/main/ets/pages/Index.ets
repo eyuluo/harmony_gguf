@@ -1,10 +1,19 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
+import { taskpool } from '@kit.ArkTS';
 import testNapi from 'libentry.so';
 import { GenerateError, GenerateStats, TokenData } from 'libentry.so';
 
 const DOMAIN = 0x0000;
 const TAG = 'demo';
+
+// 后台并发任务：解析元数据 + 加载模型，返回结果字符串
+@Concurrent
+function loadModelTask(path: string): string {
+  const meta = testNapi.parseGgufMetadata(path);
+  const modelId = testNapi.loadModel(path, { contextLength: 4096, threads: 4 });
+  return `${modelId}|${meta.architecture}|${meta.quantization}|${meta.parameters}|${meta.contextLength}`;
+}
 
 @Entry
 @Component
@@ -14,6 +23,7 @@ struct Index {
   @State input: string = '你好';
   @State output: string = '';
   @State modelId: number = 0;
+  private loading: boolean = false;
 
   build() {
     Column() {
@@ -32,6 +42,7 @@ struct Index {
 
       Row() {
         Button('选择模型')
+          .enabled(!this.loading)
           .onClick(() => this.selectModel())
         Button('卸载')
           .onClick(() => this.unload())
@@ -65,6 +76,10 @@ struct Index {
   }
 
   async selectModel() {
+    if (this.loading) {
+      return;
+    }
+    this.loading = true;
     try {
       const context = getContext(this);
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -78,7 +93,6 @@ struct Index {
       const uri = uris[0];
       hilog.info(DOMAIN, TAG, 'selected uri: %{public}s', uri);
 
-      // 拷贝到沙箱 models/ 目录（用 fd 方式，uri 需先 open）
       const modelsDir = context.filesDir + '/models';
       try {
         fileIo.mkdirSync(modelsDir);
@@ -88,21 +102,26 @@ struct Index {
       const dstPath = modelsDir + '/model.gguf';
       this.status = '拷贝模型中...';
 
+      // 异步拷贝（fd 方式，不阻塞主线程）
       const srcFile = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
       const dstFile = fileIo.openSync(dstPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      fileIo.copyFileSync(srcFile.fd, dstFile.fd);
+      await fileIo.copyFile(srcFile.fd, dstFile.fd);
       fileIo.closeSync(srcFile);
       fileIo.closeSync(dstFile);
       hilog.info(DOMAIN, TAG, 'copied to: %{public}s', dstPath);
 
-      // 解析元数据 + 加载
-      const meta = testNapi.parseGgufMetadata(dstPath);
-      this.metaText = `架构:${meta.architecture} 量化:${meta.quantization} 参数:${meta.parameters} 上下文:${meta.contextLength}`;
-      this.modelId = testNapi.loadModel(dstPath, { contextLength: 4096, threads: 4 });
+      // 后台并发加载模型（不阻塞主线程）
+      this.status = '加载模型中...';
+      const result = await taskpool.execute(loadModelTask, dstPath) as string;
+      const parts = result.split('|');
+      this.modelId = Number(parts[0]);
+      this.metaText = `架构:${parts[1]} 量化:${parts[2]} 参数:${parts[3]} 上下文:${parts[4]}`;
       this.status = `已加载 (modelId=${this.modelId})`;
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'selectModel failed: %{public}s', String(e));
       this.status = '加载失败: ' + String(e);
+    } finally {
+      this.loading = false;
     }
   }
 

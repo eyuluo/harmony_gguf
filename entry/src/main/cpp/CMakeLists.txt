@@ -30,15 +30,18 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64|armv8")
     set(GGML_ARCH_SRC
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/arm/quants.c
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/arm/repack.cpp)
+    set(GGML_ARCH_FLAGS -march=armv8.2-a+dotprod+fp16)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i686|x86")
     set(GGML_ARCH_SRC
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/x86/quants.c
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/x86/repack.cpp)
+    set(GGML_ARCH_FLAGS -mavx2 -mfma -mf16c -msse4.2)
 else()
     message(WARNING "unknown processor: ${CMAKE_SYSTEM_PROCESSOR}, fallback to ARM")
     set(GGML_ARCH_SRC
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/arm/quants.c
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/arm/repack.cpp)
+    set(GGML_ARCH_FLAGS "")
 endif()
 
 # llama 引擎（核心 + 全部架构）
@@ -80,7 +83,7 @@ add_library(entry SHARED
 
 target_link_libraries(entry PUBLIC libace_napi.z.so)
 
-target_compile_options(entry PRIVATE -fexceptions -frtti -Wno-unused-command-line-argument)
+target_compile_options(entry PRIVATE -fexceptions -frtti -Wno-unused-command-line-argument ${GGML_ARCH_FLAGS})
 
 target_compile_definitions(entry PRIVATE
     _GNU_SOURCE
