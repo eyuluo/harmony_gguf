@@ -67,8 +67,8 @@ hvigorw assembleHap --mode module -p product=default
 
 ## 文档
 
-| 文档 | 说明 |
-|------|------|
+| 文档                         | 说明 |
+|----------------------------|------|
 | [docs/PRD.md](docs/PRD.md) | 产品需求文档 |
-| [docs/mvp.md](docs/mvp.md) | 功能范围与优先级 |
+| [docs/MVP.md](docs/MVP.md) | 功能范围与优先级 |
 | [docs/TDD.md](docs/TDD.md) | 技术设计（架构、NAPI 接口、数据流、线程模型） |

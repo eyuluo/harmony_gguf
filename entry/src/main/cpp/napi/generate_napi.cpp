@@ -11,6 +11,7 @@
 #include "engine_types.h"
 #include "error_code.h"
 #include "llama.h"
+#include "llama_inference.h"
 #include "napi_util.h"
 #include "ts_fn.h"
 
@@ -117,119 +118,20 @@ void * GenerateThread(void * arg) {
     TsFn * cb = task->callback;
     const GenerateParams & params = task->params;
 
-    llama_model * model = EngineState::Instance().model();
-    llama_context * ctx = EngineState::Instance().ctx();
-    const llama_vocab * vocab = EngineState::Instance().vocab();
-
-    if (model == nullptr || ctx == nullptr || vocab == nullptr) {
-        SendError(cb, error_code_value(ErrorCode::ModelNotLoaded), "model not loaded");
-        cb->Release();
-        delete cb;
-        delete task;
-        return nullptr;
-    }
-
     EngineState::Instance().ClearStop();
 
-    if (params.threads > 0) {
-        llama_set_n_threads(ctx, params.threads, params.threads);
-    }
-
-    // 构建采样链：penalties -> top_k -> temp -> top_p -> dist
-    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
-    sparams.no_perf = true;
-    llama_sampler * smpl = llama_sampler_chain_init(sparams);
-
-    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
-    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(n_vocab, 64, params.repeat_penalty, 0.0f, 0.0f));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(params.top_k));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(params.temperature));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(params.top_p, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(static_cast<uint32_t>(llama_time_us())));
-
-    // 分词
-    const int32_t n_prompt = -llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
-                                             nullptr, 0, true, true);
-    if (n_prompt <= 0) {
-        llama_sampler_free(smpl);
-        SendError(cb, error_code_value(ErrorCode::InferenceFailed), "failed to tokenize prompt");
-        cb->Release();
-        delete cb;
-        delete task;
-        return nullptr;
-    }
-
-    std::vector<llama_token> prompt_tokens(static_cast<size_t>(n_prompt));
-    if (llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
-                       prompt_tokens.data(), n_prompt, true, true) < 0) {
-        llama_sampler_free(smpl);
-        SendError(cb, error_code_value(ErrorCode::InferenceFailed), "failed to tokenize prompt");
-        cb->Release();
-        delete cb;
-        delete task;
-        return nullptr;
-    }
-
-    llama_batch batch = llama_batch_get_one(prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()));
-
     GenerateStats stats;
-    stats.prompt_tokens = n_prompt;
+    bool ok = inference::RunGeneration(
+        params,
+        [cb](const char * text) { SendToken(cb, text); },
+        []() { return EngineState::Instance().StopRequested(); },
+        stats);
 
-    const int64_t t_start = llama_time_us();
-    int64_t t_first = 0;
-    bool first_token = true;
-    llama_token new_token_id = LLAMA_TOKEN_NULL;
-
-    for (int32_t i = 0; i < params.max_tokens; i++) {
-        if (EngineState::Instance().StopRequested()) {
-            break;
-        }
-
-        if (llama_decode(ctx, batch) != 0) {
-            if (EngineState::Instance().StopRequested()) {
-                break;
-            }
-            llama_sampler_free(smpl);
-            SendError(cb, error_code_value(ErrorCode::InferenceFailed), "decode failed");
-            cb->Release();
-            delete cb;
-            delete task;
-            return nullptr;
-        }
-
-        new_token_id = llama_sampler_sample(smpl, ctx, -1);
-
-        if (first_token) {
-            t_first = llama_time_us();
-            stats.ttft_ms = static_cast<double>(t_first - t_start) / 1000.0;
-            first_token = false;
-        }
-
-        if (llama_vocab_is_eog(vocab, new_token_id)) {
-            break;
-        }
-
-        char piece[256] = {0};
-        int32_t n = llama_token_to_piece(vocab, new_token_id, piece, static_cast<int32_t>(sizeof(piece)), 0, true);
-        if (n > 0) {
-            SendToken(cb, piece);
-        }
-
-        stats.generated_tokens++;
-
-        llama_sampler_accept(smpl, new_token_id);
-        batch = llama_batch_get_one(&new_token_id, 1);
+    if (ok) {
+        SendDone(cb, stats);
+    } else {
+        SendError(cb, error_code_value(ErrorCode::InferenceFailed), "generation failed");
     }
-
-    const int64_t t_end = llama_time_us();
-    if (stats.generated_tokens > 0) {
-        const double elapsed = static_cast<double>(t_end - t_start) / 1000000.0;
-        stats.tokens_per_second = elapsed > 0.0 ? stats.generated_tokens / elapsed : 0.0;
-    }
-
-    llama_sampler_free(smpl);
-
-    SendDone(cb, stats);
     cb->Release();
     delete cb;
     delete task;

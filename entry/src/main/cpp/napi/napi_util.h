@@ -134,6 +134,12 @@ static inline napi_value NewDouble(napi_env env, double value) {
     return result;
 }
 
+static inline napi_value NewBool(napi_env env, bool value) {
+    napi_value result = nullptr;
+    napi_get_boolean(env, value, &result);
+    return result;
+}
+
 static inline void SetProperty(napi_env env, napi_value obj, const char * name, napi_value value) {
     napi_set_named_property(env, obj, name, value);
 }

@@ -3,6 +3,7 @@
 // 各模块的导出注册
 void RegisterModelApi(napi_env env, napi_value exports);
 void RegisterGenerateApi(napi_env env, napi_value exports);
+void RegisterServeApi(napi_env env, napi_value exports);
 
 // 模板示例：两数相加（保留以兼容模板页面，待 UI 重写后移除）
 static napi_value Add(napi_env env, napi_callback_info info)
@@ -32,6 +33,7 @@ static napi_value Init(napi_env env, napi_value exports)
 
     RegisterModelApi(env, exports);
     RegisterGenerateApi(env, exports);
+    RegisterServeApi(env, exports);
     return exports;
 }
 EXTERN_C_END

@@ -51,6 +51,10 @@ file(GLOB NAPI_SRC
     ${NATIVERENDER_ROOT_PATH}/napi/*.cpp
     ${NATIVERENDER_ROOT_PATH}/common/*.cpp)
 
+# Serve 服务（cpp-httplib + OpenAI 兼容路由）
+file(GLOB SERVE_SRC
+    ${NATIVERENDER_ROOT_PATH}/serve/*.cpp)
+
 # ---- include 目录 ----
 include_directories(
     ${NATIVERENDER_ROOT_PATH}
@@ -61,7 +65,8 @@ include_directories(
     ${NATIVERENDER_ROOT_PATH}/engine
     ${NATIVERENDER_ROOT_PATH}/engine/models
     ${NATIVERENDER_ROOT_PATH}/napi
-    ${NATIVERENDER_ROOT_PATH}/common)
+    ${NATIVERENDER_ROOT_PATH}/common
+    ${NATIVERENDER_ROOT_PATH}/serve)
 
 # ---- 目标 ----
 add_library(entry SHARED
@@ -70,7 +75,8 @@ add_library(entry SHARED
     ${GGML_CPU_SRC}
     ${GGML_ARCH_SRC}
     ${LLAMA_SRC}
-    ${NAPI_SRC})
+    ${NAPI_SRC}
+    ${SERVE_SRC})
 
 target_link_libraries(entry PUBLIC libace_napi.z.so)
 

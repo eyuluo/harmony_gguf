@@ -1,0 +1,185 @@
+{
+  "version": "0.1.0",
+  "entries": [
+    {
+      "id": "llama3",
+      "architecture": "llama",
+      "family": "llama",
+      "chatTemplate": "llama3",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "llama2",
+      "architecture": "llama",
+      "family": "llama",
+      "chatTemplate": "llama2",
+      "defaultContext": 4096,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "qwen2",
+      "architecture": "qwen2",
+      "family": "qwen",
+      "chatTemplate": "chatml",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "qwen2moe",
+      "architecture": "qwen2moe",
+      "family": "qwen",
+      "chatTemplate": "chatml",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "qwen3",
+      "architecture": "qwen3",
+      "family": "qwen",
+      "chatTemplate": "chatml",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "gemma",
+      "architecture": "gemma",
+      "family": "gemma",
+      "chatTemplate": "gemma",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "gemma2",
+      "architecture": "gemma2",
+      "family": "gemma",
+      "chatTemplate": "gemma",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "mistral",
+      "architecture": "mistral",
+      "family": "mistral",
+      "chatTemplate": "mistral-v7",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "deepseek",
+      "architecture": "deepseek",
+      "family": "deepseek",
+      "chatTemplate": "deepseek3",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "deepseek2",
+      "architecture": "deepseek2",
+      "family": "deepseek",
+      "chatTemplate": "deepseek2",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "chatglm",
+      "architecture": "chatglm",
+      "family": "chatglm",
+      "chatTemplate": "chatglm3",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    },
+    {
+      "id": "glm4",
+      "architecture": "glm4",
+      "family": "chatglm",
+      "chatTemplate": "chatglm4",
+      "defaultContext": 8192,
+      "recommendedQuants": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+      "defaultParams": {
+        "temperature": 0.7,
+        "topK": 40,
+        "topP": 0.95,
+        "repeatPenalty": 1.1,
+        "maxTokens": 512
+      }
+    }
+  ]
+}
