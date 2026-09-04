@@ -99,3 +99,7 @@ target_compile_options(test-smoke-generate PRIVATE -fexceptions -frtti)
 add_executable(test-tokenizer-roundtrip harmony/test-tokenizer-roundtrip.cpp)
 target_link_libraries(test-tokenizer-roundtrip PRIVATE engine_test_lib)
 target_compile_options(test-tokenizer-roundtrip PRIVATE -fexceptions -frtti)
+# 生成循环内存检查
+add_executable(test-memory-check harmony/test-memory-check.cpp)
+target_link_libraries(test-memory-check PRIVATE engine_test_lib)
+target_compile_options(test-memory-check PRIVATE -fexceptions -frtti)
