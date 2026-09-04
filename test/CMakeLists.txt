@@ -44,6 +44,11 @@ else()
     set(GGML_ARCH_FLAGS "")
 endif()
 
+# ---- llama 引擎源文件 ----
+file(GLOB LLAMA_SRC
+    ${CPP_ROOT}/engine/*.cpp
+    ${CPP_ROOT}/engine/models/*.cpp)
+
 # ---- include 目录 ----
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/harmony
@@ -54,22 +59,34 @@ include_directories(
     ${CPP_ROOT}/engine
     ${CPP_ROOT}/engine/models)
 
-# ---- ggml 静态库 ----
-add_library(ggml_test_lib STATIC
+# ---- ggml + llama 静态库 ----
+add_library(engine_test_lib STATIC
     ${GGML_SRC}
     ${GGML_CPU_SRC}
-    ${GGML_ARCH_SRC})
+    ${GGML_ARCH_SRC}
+    ${LLAMA_SRC})
 
-target_compile_options(ggml_test_lib PRIVATE -fexceptions -frtti -Wno-unused-command-line-argument ${GGML_ARCH_FLAGS})
-target_compile_definitions(ggml_test_lib PRIVATE
+target_compile_options(engine_test_lib PRIVATE -fexceptions -frtti -Wno-unused-command-line-argument ${GGML_ARCH_FLAGS})
+target_compile_definitions(engine_test_lib PRIVATE
     _GNU_SOURCE
     GGML_USE_CPU
     GGML_VERSION="0.3.0"
-    GGML_COMMIT="dev")
+    GGML_COMMIT="dev"
+    LLAMA_VERSION="0.3.0")
 
 # ---- 测试可执行文件 ----
 
-# Day 3-4: ggml 基础算子单测
+# ggml 基础算子单测
 add_executable(test-ggml-ops harmony/test-ggml-ops.cpp)
-target_link_libraries(test-ggml-ops PRIVATE ggml_test_lib)
+target_link_libraries(test-ggml-ops PRIVATE engine_test_lib)
 target_compile_options(test-ggml-ops PRIVATE -fexceptions -frtti)
+
+# GGUF 解析单测
+add_executable(test-gguf-parse harmony/test-gguf-parse.cpp)
+target_link_libraries(test-gguf-parse PRIVATE engine_test_lib)
+target_compile_options(test-gguf-parse PRIVATE -fexceptions -frtti)
+
+# 模型加载冒烟测试
+add_executable(test-model-load harmony/test-model-load.cpp)
+target_link_libraries(test-model-load PRIVATE engine_test_lib)
+target_compile_options(test-model-load PRIVATE -fexceptions -frtti)
