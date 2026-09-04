@@ -90,3 +90,8 @@ target_compile_options(test-gguf-parse PRIVATE -fexceptions -frtti)
 add_executable(test-model-load harmony/test-model-load.cpp)
 target_link_libraries(test-model-load PRIVATE engine_test_lib)
 target_compile_options(test-model-load PRIVATE -fexceptions -frtti)
+
+# 主路径生成冒烟测试
+add_executable(test-smoke-generate harmony/test-smoke-generate.cpp)
+target_link_libraries(test-smoke-generate PRIVATE engine_test_lib)
+target_compile_options(test-smoke-generate PRIVATE -fexceptions -frtti)
