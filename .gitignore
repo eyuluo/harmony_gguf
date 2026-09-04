@@ -1,4 +1,4 @@
-/node_modules
+﻿/node_modules
 /oh_modules
 /local.properties
 /.idea
@@ -10,3 +10,13 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+
+# CI 报告产物
+/reports/
+
+# 推理测试模型（大文件，不纳入版本控制）
+/test/models/inference/*.gguf
+/test/models/inference/*.bin
+
+# error 日志
+/error.txt
