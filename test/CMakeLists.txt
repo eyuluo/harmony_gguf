@@ -95,3 +95,7 @@ target_compile_options(test-model-load PRIVATE -fexceptions -frtti)
 add_executable(test-smoke-generate harmony/test-smoke-generate.cpp)
 target_link_libraries(test-smoke-generate PRIVATE engine_test_lib)
 target_compile_options(test-smoke-generate PRIVATE -fexceptions -frtti)
+# tokenizer 编码/解码往返测试
+add_executable(test-tokenizer-roundtrip harmony/test-tokenizer-roundtrip.cpp)
+target_link_libraries(test-tokenizer-roundtrip PRIVATE engine_test_lib)
+target_compile_options(test-tokenizer-roundtrip PRIVATE -fexceptions -frtti)
