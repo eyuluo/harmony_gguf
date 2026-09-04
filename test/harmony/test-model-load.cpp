@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // test-model-load.cpp — 模型加载冒烟测试
 // 角色 C（质量保障）· Day 5-6 交付物
 //
@@ -19,6 +19,7 @@ static struct llama_model * load_model(const std::string & filename) {
     std::string path = std::string(MODELS_DIR) + "/" + filename;
     struct llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0; // 仅 CPU
+    params.vocab_only = true; // vocab 测试模型无权重，仅加载词表
     return llama_model_load_from_file(path.c_str(), params);
 }
 

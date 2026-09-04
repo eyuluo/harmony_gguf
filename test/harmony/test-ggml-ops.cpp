@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // test-ggml-ops.cpp — ggml 基础算子单元测试
 // 角色 C（质量保障）· Day 3-4 交付物
 //
@@ -107,7 +107,7 @@ static void test_mul_mat(testing & t) {
         // a: 2x3 矩阵 (行主序: [1,2,3, 4,5,6])
         ggml_tensor * a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 3, 2);
         // b: 3x1 向量
-        ggml_tensor * b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 1, 3);
+        ggml_tensor * b = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 3, 1);
 
         fill_tensor_f32(a, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
         fill_tensor_f32(b, {7.0f, 8.0f, 9.0f});
@@ -132,7 +132,7 @@ static void test_softmax(testing & t) {
         ggml_tensor * a = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 3);
         fill_tensor_f32(a, {1.0f, 2.0f, 3.0f});
 
-        ggml_tensor * s = ggml_softmax(ctx, a);
+        ggml_tensor * s = ggml_soft_max(ctx, a);
         auto result = compute_graph(ctx, s);
 
         // softmax([1,2,3]) = [e^1, e^2, e^3] / sum
@@ -211,13 +211,13 @@ static void test_rope(testing & t) {
         ggml_tensor * a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, ne0, ne1);
         fill_tensor_f32(a, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f});
 
-        // 位置参数
-        ggml_tensor * pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, ne1);
-        int32_t pos_data[2] = {0, 1};
+        // 位置参数（2D 张量 ne[2]=1，位置张量 ne[0] 需匹配）
+        ggml_tensor * pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, 1);
+        int32_t pos_data[1] = {0};
         memcpy(ggml_get_data(pos), pos_data, sizeof(pos_data));
 
         // 标准 RoPE（mode=0）
-        ggml_tensor * r = ggml_rope(ctx, a, pos, ne0, 0, 1, 32.0f);
+        ggml_tensor * r = ggml_rope(ctx, a, pos, ne0, 0);
         auto result = compute_graph(ctx, r);
 
         // 位置 0 时 RoPE 不改变值（cos=1, sin=0）

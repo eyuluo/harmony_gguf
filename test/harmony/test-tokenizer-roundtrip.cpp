@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // test-tokenizer-roundtrip.cpp — tokenizer 编码/解码往返测试
 // 角色 C（质量保障）· Day 9 交付物
 //
@@ -29,6 +29,7 @@ static const struct llama_vocab * get_vocab(const std::string & filename, struct
     std::string path = std::string(MODELS_DIR) + "/" + filename;
     struct llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
+    params.vocab_only = true;
     struct llama_model * model = llama_model_load_from_file(path.c_str(), params);
     *model_out = model;
     if (!model) return nullptr;

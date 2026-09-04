@@ -1,10 +1,11 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # ============================================================================
 # ci-cpp-test.sh — C++ 引擎测试脚本
 # 角色 C（质量保障）维护
-# 阶段 1 起启用，编译并运行 test/ 目录下的测试
+# 阶段 1 起启用，编译并运行 test/ 目录下的全部 6 个测试
 # 用法：bash scripts/ci-cpp-test.sh
 # ============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,22 +35,46 @@ if [ "$CMAKE_CONFIG_EXIT" -ne 0 ]; then
   exit "$CMAKE_CONFIG_EXIT"
 fi
 
-echo "[INFO] 编译测试..."
-cmake --build "$BUILD_DIR" --target test-ggml-ops -j$(nproc 2>/dev/null || echo 4) 2>&1 | tee "$REPORT_DIR/cpp-build.log"
-BUILD_EXIT=${PIPESTATUS[0]}
-if [ "$BUILD_EXIT" -ne 0 ]; then
-  echo "[FAIL] 编译失败"
-  exit "$BUILD_EXIT"
+# 测试目标列表
+TARGETS=(
+  "test-ggml-ops"
+  "test-gguf-parse"
+  "test-model-load"
+  "test-smoke-generate"
+  "test-tokenizer-roundtrip"
+  "test-memory-check"
+)
+
+ALL_PASSED=true
+
+for target in "${TARGETS[@]}"; do
+  echo ""
+  echo "--- 编译 $target ---"
+  cmake --build "$BUILD_DIR" --target "$target" --config Debug -j$(nproc 2>/dev/null || echo 4) 2>&1 | tee "$REPORT_DIR/cpp-build-$target.log"
+  BUILD_EXIT=${PIPESTATUS[0]}
+  if [ "$BUILD_EXIT" -ne 0 ]; then
+    echo "[FAIL] $target 编译失败"
+    ALL_PASSED=false
+    continue
+  fi
+
+  echo "--- 运行 $target ---"
+  (cd "$TEST_DIR" && "$BUILD_DIR/$target" 2>&1) | tee "$REPORT_DIR/cpp-test-$target.log"
+  TEST_EXIT=${PIPESTATUS[0]}
+
+  if [ "$TEST_EXIT" -ne 0 ]; then
+    echo "[FAIL] $target 测试未通过"
+    ALL_PASSED=false
+  else
+    echo "[PASS] $target 测试通过"
+  fi
+done
+
+echo ""
+if [ "$ALL_PASSED" = true ]; then
+  echo "[PASS] C++ 引擎测试全部通过"
+  exit 0
+else
+  echo "[FAIL] C++ 引擎测试存在失败项"
+  exit 1
 fi
-
-echo "[INFO] 运行 ggml 算子测试..."
-"$BUILD_DIR/test-ggml-ops" 2>&1 | tee "$REPORT_DIR/cpp-test.log"
-TEST_EXIT=${PIPESTATUS[0]}
-
-if [ "$TEST_EXIT" -ne 0 ]; then
-  echo "[FAIL] ggml 算子测试未通过"
-  exit "$TEST_EXIT"
-fi
-
-echo "[PASS] C++ 引擎测试通过"
-exit 0
