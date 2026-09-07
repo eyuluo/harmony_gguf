@@ -2,6 +2,7 @@
 #define HARMONY_GGUF_LLAMA_INFERENCE_H
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 
@@ -30,6 +31,19 @@ GenResult RunGeneration(
     const std::function<void(const char * text)> & on_token,
     const std::function<bool()> & should_stop,
     GenerateStats & out_stats);
+
+// 异步执行生成：在独立线程运行 RunGeneration，结束后释放槽位并回调 on_done。
+// 借鉴 llama-server：推理与调用线程（如 HTTP 线程）解耦，避免在请求线程里执行 decode。
+// on_token / on_done 在推理线程调用，调用方需自行处理线程安全。
+// 返回 false 表示线程创建失败（调用方需自行释放槽位）。
+bool RunGenerationAsync(
+    uint64_t request_id,
+    llama_seq_id seq_id,
+    const std::shared_ptr<std::atomic_bool> & stop_flag,
+    const GenerateParams & params,
+    const std::function<void(const char * text)> & on_token,
+    const std::function<void(GenResult, const GenerateStats &)> & on_done,
+    const std::function<bool()> & should_stop);
 
 } // namespace inference
 

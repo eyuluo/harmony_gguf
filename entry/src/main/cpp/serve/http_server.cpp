@@ -5,7 +5,9 @@
 #include <netinet/in.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -25,26 +27,75 @@ using json = nlohmann::json;
 
 namespace {
 
-// 并发槽位守卫：构造时阻塞获取一个空闲槽位（服务停止时失败），析构时自动释放。
-class SlotGuard {
+// 生成结果通道：推理线程写入 token / 完成，HTTP 线程读取。
+// 借鉴 llama-server：推理与请求线程解耦，decode 不在 HTTP 线程里执行。
+class GenerateChannel {
 public:
-    SlotGuard()
-        : id_(EngineState::Instance().BeginGenerateBlocking(seq_id_, stop_flag_,
-                                                            []() { return !HttpServer::Instance().IsRunning(); })) {}
-    ~SlotGuard() {
-        if (id_ != 0) {
-            EngineState::Instance().EndGenerate(id_, seq_id_);
-        }
+    void PushToken(const std::string & text) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        tokens_.push_back(text);
+        full_text_ += text;
+        cv_.notify_one();
     }
-    bool acquired() const { return id_ != 0; }
-    llama_seq_id seq_id() const { return seq_id_; }
-    const std::shared_ptr<std::atomic_bool> & stop_flag() const { return stop_flag_; }
+
+    void Finish(inference::GenResult result, const GenerateStats & stats) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        result_ = result;
+        stats_ = stats;
+        finished_ = true;
+        cv_.notify_all();
+    }
+
+    // 流式：取下一个 token，返回 false 表示已完成
+    bool NextToken(std::string & out) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this]() { return !tokens_.empty() || finished_; });
+        if (!tokens_.empty()) {
+            out = tokens_.front();
+            tokens_.pop_front();
+            return true;
+        }
+        return false;
+    }
+
+    // 非流式：等待完成
+    void WaitFinish() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this]() { return finished_; });
+    }
+
+    // 非流式：读取完整生成文本
+    std::string FullText() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return full_text_;
+    }
+
+    inference::GenResult result() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return result_;
+    }
+
+    GenerateStats stats() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return stats_;
+    }
 
 private:
-    uint64_t id_ = 0;
-    llama_seq_id seq_id_ = -1;
-    std::shared_ptr<std::atomic_bool> stop_flag_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::deque<std::string> tokens_;
+    std::string full_text_;
+    bool finished_ = false;
+    inference::GenResult result_ = inference::GenResult::Failed;
+    GenerateStats stats_;
 };
+
+// 阻塞获取一个空闲槽位，失败返回 false（服务停止或模型未加载）
+bool AcquireSlot(llama_seq_id & seq_id, std::shared_ptr<std::atomic_bool> & stop_flag, uint64_t & id) {
+    id = EngineState::Instance().BeginGenerateBlocking(seq_id, stop_flag,
+                                                       []() { return !HttpServer::Instance().IsRunning(); });
+    return id != 0;
+}
 
 // 从请求 JSON 提取生成参数
 GenerateParams ParseGenerateParams(const json & body, const std::string & prompt) {
@@ -241,28 +292,38 @@ bool AuthFailed(const ServerConfig & config, const httplib::Request & req, httpl
 // 流式生成：逐 token 写 SSE，chunk 结构由 make_chunk 决定
 void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink,
                          const std::function<json(const std::string &)> & make_chunk) {
-    SlotGuard guard;
-    if (!guard.acquired()) {
+    llama_seq_id seq_id = -1;
+    std::shared_ptr<std::atomic_bool> stop_flag;
+    uint64_t id = 0;
+    if (!AcquireSlot(seq_id, stop_flag, id)) {
         return;
     }
 
-    GenerateStats stats;
-    inference::GenResult result = inference::RunGeneration(
-        guard.seq_id(),
-        guard.stop_flag(),
-        params,
-        [&sink, &make_chunk](const char * text) {
-            std::string data = "data: " + make_chunk(text).dump() + "\n\n";
-            sink.write(data.data(), data.size());
-        },
-        ShouldStop,
-        stats);
+    auto chan = std::make_shared<GenerateChannel>();
+    bool ok = inference::RunGenerationAsync(
+        id, seq_id, stop_flag, params,
+        [chan](const char * text) { chan->PushToken(text); },
+        [chan](inference::GenResult result, const GenerateStats & stats) { chan->Finish(result, stats); },
+        ShouldStop);
+    if (!ok) {
+        EngineState::Instance().EndGenerate(id, seq_id);
+        std::string err = "data: {\"error\":\"generation failed\"}\n\n";
+        sink.write(err.data(), err.size());
+        return;
+    }
 
-    if (result == inference::GenResult::Failed) {
+    std::string token;
+    while (chan->NextToken(token)) {
+        std::string data = "data: " + make_chunk(token).dump() + "\n\n";
+        sink.write(data.data(), data.size());
+    }
+
+    if (chan->result() == inference::GenResult::Failed) {
         std::string err = "data: {\"error\":\"generation failed\"}\n\n";
         sink.write(err.data(), err.size());
     }
 
+    const GenerateStats stats = chan->stats();
     json usage_chunk = {
         { "usage", {
             { "prompt_tokens", stats.prompt_tokens },
@@ -282,30 +343,37 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
 // 非流式生成：一次性生成并写回响应，响应结构由 make_response 决定
 void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
                        const std::function<json(const std::string &, const GenerateStats &)> & make_response) {
-    SlotGuard guard;
-    if (!guard.acquired()) {
+    llama_seq_id seq_id = -1;
+    std::shared_ptr<std::atomic_bool> stop_flag;
+    uint64_t id = 0;
+    if (!AcquireSlot(seq_id, stop_flag, id)) {
         res.status = 503;
         res.set_content("{\"error\":\"server shutting down\"}", "application/json");
         return;
     }
 
-    std::string text;
-    GenerateStats stats;
-    inference::GenResult result = inference::RunGeneration(
-        guard.seq_id(),
-        guard.stop_flag(),
-        params,
-        [&text](const char * t) { text += t; },
-        ShouldStop,
-        stats);
-
-    if (result == inference::GenResult::Failed) {
+    auto chan = std::make_shared<GenerateChannel>();
+    bool ok = inference::RunGenerationAsync(
+        id, seq_id, stop_flag, params,
+        [chan](const char * text) { chan->PushToken(text); },
+        [chan](inference::GenResult result, const GenerateStats & stats) { chan->Finish(result, stats); },
+        ShouldStop);
+    if (!ok) {
+        EngineState::Instance().EndGenerate(id, seq_id);
         res.status = 500;
         res.set_content("{\"error\":\"generation failed\"}", "application/json");
         return;
     }
 
-    res.set_content(make_response(text, stats).dump(), "application/json");
+    chan->WaitFinish();
+
+    if (chan->result() == inference::GenResult::Failed) {
+        res.status = 500;
+        res.set_content("{\"error\":\"generation failed\"}", "application/json");
+        return;
+    }
+
+    res.set_content(make_response(chan->FullText(), chan->stats()).dump(), "application/json");
 }
 
 } // namespace

@@ -1,5 +1,4 @@
 #include <napi/native_api.h>
-#include <pthread.h>
 
 #include <atomic>
 #include <cstdint>
@@ -34,14 +33,6 @@ struct GenCallbackData {
     double tokens_per_second;
     int32_t error_code;
     char error_message[512];
-};
-
-struct GenerateTask {
-    uint64_t request_id;
-    llama_seq_id seq_id;
-    std::shared_ptr<std::atomic_bool> stop_flag;
-    GenerateParams params;
-    TsFn * callback;
 };
 
 void FillStats(GenCallbackData * data, const GenerateStats & stats) {
@@ -125,39 +116,6 @@ void SendError(TsFn * cb, int32_t code, const char * message) {
     cb->Call(data);
 }
 
-// 推理线程：执行完整的生成循环，逐 token 回调
-void * GenerateThread(void * arg) {
-    GenerateTask * task = static_cast<GenerateTask *>(arg);
-    TsFn * cb = task->callback;
-    const GenerateParams & params = task->params;
-    const uint64_t request_id = task->request_id;
-    const llama_seq_id seq_id = task->seq_id;
-    std::shared_ptr<std::atomic_bool> stop_flag = task->stop_flag;
-
-    GenerateStats stats;
-    inference::GenResult result = inference::RunGeneration(
-        seq_id,
-        stop_flag,
-        params,
-        [cb](const char * text) { SendToken(cb, text); },
-        []() { return false; },
-        stats);
-
-    EngineState::Instance().EndGenerate(request_id, seq_id);
-
-    if (result == inference::GenResult::Completed) {
-        SendDone(cb, stats);
-    } else if (result == inference::GenResult::Aborted) {
-        SendStopped(cb, stats);
-    } else {
-        SendError(cb, error_code_value(ErrorCode::InferenceFailed), "generation failed");
-    }
-    cb->Release();
-    delete cb;
-    delete task;
-    return nullptr;
-}
-
 } // namespace
 
 // generate(prompt: string, params: GenerateParams, callback: (event, data) => void): number (requestId)
@@ -228,24 +186,33 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    GenerateTask * task = new GenerateTask();
-    task->request_id = request_id;
-    task->seq_id = seq_id;
-    task->stop_flag = stop_flag;
-    task->params = params;
-    task->callback = cb;
+    // 异步执行：推理置于独立线程（借鉴 llama-server），逐 token / 完成经 TSFN 回调
+    bool ok = inference::RunGenerationAsync(
+        request_id,
+        seq_id,
+        stop_flag,
+        params,
+        [cb](const char * text) { SendToken(cb, text); },
+        [cb](inference::GenResult result, const GenerateStats & stats) {
+            if (result == inference::GenResult::Completed) {
+                SendDone(cb, stats);
+            } else if (result == inference::GenResult::Aborted) {
+                SendStopped(cb, stats);
+            } else {
+                SendError(cb, error_code_value(ErrorCode::InferenceFailed), "generation failed");
+            }
+            cb->Release();
+            delete cb;
+        },
+        []() { return false; });
 
-    pthread_t thread;
-    int rc = pthread_create(&thread, nullptr, GenerateThread, task);
-    if (rc != 0) {
+    if (!ok) {
         EngineState::Instance().EndGenerate(request_id, seq_id);
-        delete task;
         cb->Release();
         delete cb;
         napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), "failed to create inference thread");
         return nullptr;
     }
-    pthread_detach(thread);
 
     napi_value result = nullptr;
     napi_create_int64(env, static_cast<int64_t>(request_id), &result);

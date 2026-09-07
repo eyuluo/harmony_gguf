@@ -4,7 +4,7 @@ import { taskpool } from '@kit.ArkTS';
 import { http } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import testNapi from 'libentry.so';
-import { ServerInfo, GenerateStats, GenerateError } from 'libentry.so';
+import { ServerInfo, GenerateStats, GenerateError, TokenData } from 'libentry.so';
 
 const DOMAIN = 0x0000;
 const TAG = 'demo';
@@ -42,6 +42,7 @@ struct Index {
   @State metaText: string = '';
   @State modelId: number = 0;
   @State input: string = '你好';
+  @State genText: string = '';
   @State genStatsText: string = '';
   @State serverInfo: string = '服务未启动';
   @State serveStatsText: string = '';
@@ -96,6 +97,11 @@ struct Index {
       Text(this.genStatsText)
         .fontSize(12)
         .fontColor('#1F6B3E')
+        .margin({ bottom: 4 })
+
+      Text(this.genText)
+        .fontSize(14)
+        .width('100%')
         .margin({ bottom: 8 })
 
       Text('Serve 服务')
@@ -218,10 +224,14 @@ struct Index {
   }
 
   generate() {
+    this.genText = '';
     this.genStatsText = '';
     try {
       this.activeRequestId = testNapi.generate(this.input, { maxTokens: 128, temperature: 0.7 }, (event, data) => {
-        if (event === 'done' || event === 'stopped') {
+        if (event === 'token') {
+          const d = data as TokenData;
+          this.genText += d.text;
+        } else if (event === 'done' || event === 'stopped') {
           const d = data as GenerateStats;
           this.genStatsText = `prompt_tokens: ${d.promptTokens}  completion_tokens: ${d.generatedTokens}  ttft: ${d.ttftMs.toFixed(0)} ms  tps: ${d.tokensPerSecond.toFixed(1)}`;
           this.appendLog(`<<< ${event} ${this.genStatsText}`);

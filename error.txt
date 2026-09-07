@@ -1,39 +1,4 @@
-
-> hvigor Finished :entry:default@BuildNativeWithNinja... after 138 ms 
-> hvigor WARN: WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/pages/Index.ets:168:23
- 'getContext' has been deprecated.
-
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/pages/Index.ets:282:22
- To use this API, you need to apply for the permissions: ohos.permission.INTERNET
-
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/pages/Index.ets:297:22
- To use this API, you need to apply for the permissions: ohos.permission.INTERNET
-
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/pages/Index.ets:314:22
- To use this API, you need to apply for the permissions: ohos.permission.INTERNET
-
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/pages/Index.ets:338:22
- To use this API, you need to apply for the permissions: ohos.permission.INTERNET
-
-
-> hvigor Finished :entry:default@CompileArkTS... after 673 ms 
-> hvigor Finished :entry:default@ProcessLibs... after 475 ms 
-> hvigor Finished :entry:default@DoNativeStrip... after 103 ms 
-> hvigor Finished :entry:default@CacheNativeLibs... after 5 ms 
-> hvigor Finished :entry:default@GeneratePkgModuleJson... after 3 ms 
-> hvigor Finished :entry:default@ProcessCompiledResources... after 2 ms 
-> hvigor Finished :entry:default@PackageHap... after 404 ms 
-> hvigor Finished :entry:default@PackingCheck... after 3 ms 
-> hvigor WARN: Will skip sign 'hos_hap'. No signingConfigs profile is configured in current project.
-             If needed, configure the signingConfigs in D:\Project\Harmony_gguf\build-profile.json5.
-> hvigor Finished :entry:default@SignHap... after 2 ms 
-> hvigor Finished :entry:default@CollectDebugSymbol... after 1 ms 
-> hvigor Finished :entry:assembleHap... after 1 ms 
-> hvigor BUILD SUCCESSFUL in 2 s 200 ms 
-
-33 tasks in total: 30 executed, 3 up-to-date
-
-进程已结束，退出代码为 0
-
-分析结果已生成，详细性能优化建议: 构建分析器
-
+09-07 16:13:31.302   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
+09-07 16:13:34.301   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
+09-07 16:13:37.300   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
+09-07 16:13:40.300   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr

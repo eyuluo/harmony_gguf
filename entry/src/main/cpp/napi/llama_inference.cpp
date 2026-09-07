@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "engine_state.h"
@@ -14,6 +16,7 @@ namespace {
 
 // 为 batch 中 n 个 token 设置 seq_id 与显式 pos；最后一个 token 输出 logits（供采样）。
 void FillBatchSeq(llama_batch & batch, llama_seq_id seq_id, int32_t n, llama_pos pos_start, bool last_logits) {
+    batch.n_tokens = n;
     for (int32_t i = 0; i < n; i++) {
         batch.pos[i] = pos_start + i;
         batch.n_seq_id[i] = 1;
@@ -69,6 +72,9 @@ GenResult RunGeneration(
     llama_context * ctx = state.ctx();
     const llama_vocab * vocab = state.vocab();
 
+    fprintf(stderr, "[gen] seq=%d prompt_len=%zu max_tokens=%d\n",
+            (int) seq_id, params.prompt.size(), params.max_tokens);
+
     if (model == nullptr || ctx == nullptr || vocab == nullptr) {
         return GenResult::Failed;
     }
@@ -103,6 +109,7 @@ GenResult RunGeneration(
     // 分词
     const int32_t n_prompt = -llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
                                              nullptr, 0, true, true);
+    fprintf(stderr, "[gen] n_prompt=%d\n", n_prompt);
     if (n_prompt <= 0) {
         return GenResult::Failed;
     }
@@ -132,6 +139,7 @@ GenResult RunGeneration(
 
     // 单 token batch：生成循环复用
     BatchGuard one(1);
+    one.get().n_tokens = 1;
     one.get().n_seq_id[0] = 1;
     one.get().seq_id[0][0] = seq_id;
     one.get().logits[0] = 1;
@@ -161,6 +169,7 @@ GenResult RunGeneration(
             }
             state.ClearActiveStopFlag();
         }
+        fprintf(stderr, "[gen] i=%d n_past=%d rc=%d token=%d\n", i, (int) n_past, rc, (int) new_token_id);
 
         if (rc != 0) {
             if (stop_requested()) {
@@ -219,6 +228,31 @@ GenResult RunGeneration(
     }
 
     return stopped ? GenResult::Aborted : GenResult::Completed;
+}
+
+bool RunGenerationAsync(
+    uint64_t request_id,
+    llama_seq_id seq_id,
+    const std::shared_ptr<std::atomic_bool> & stop_flag,
+    const GenerateParams & params,
+    const std::function<void(const char * text)> & on_token,
+    const std::function<void(GenResult, const GenerateStats &)> & on_done,
+    const std::function<bool()> & should_stop) {
+
+    auto run = [request_id, seq_id, stop_flag, params, on_token, on_done, should_stop]() {
+        GenerateStats stats;
+        GenResult result = RunGeneration(seq_id, stop_flag, params, on_token, should_stop, stats);
+        EngineState::Instance().EndGenerate(request_id, seq_id);
+        on_done(result, stats);
+    };
+
+    try {
+        std::thread t(run);
+        t.detach();
+    } catch (...) {
+        return false;
+    }
+    return true;
 }
 
 } // namespace inference
