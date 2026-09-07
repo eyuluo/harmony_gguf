@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/Harmony_GGUF.iml" filepath="$PROJECT_DIR$/.idea/modules/Harmony_GGUF.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/Harmony_gguf.iml" filepath="$PROJECT_DIR$/.idea/modules/Harmony_gguf.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/entry.iml" filepath="$PROJECT_DIR$/.idea/modules/entry.iml" />
     </modules>
   </component>
