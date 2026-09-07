@@ -29,7 +29,7 @@ struct GenerateParams {
 struct GenerateStats {
     int32_t prompt_tokens = 0;
     int32_t generated_tokens = 0;
-    int64_t ttft_ms = 0;
+    double ttft_ms = 0.0;
     double tokens_per_second = 0.0;
 };
 

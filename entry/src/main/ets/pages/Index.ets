@@ -136,17 +136,24 @@ struct Index {
 
   generate() {
     this.output = '';
-    testNapi.generate(this.input, { maxTokens: 128, temperature: 0.7 }, (event, data) => {
-      if (event === 'token') {
-        const d = data as TokenData;
-        this.output += d.text;
-      } else if (event === 'done') {
+    try {
+      testNapi.generate(this.input, { maxTokens: 128, temperature: 0.7 }, (event, data) => {
+        if (event === 'token') {
+          const d = data as TokenData;
+          this.output += d.text;
+        } else if (event === 'done') {
+          const d = data as GenerateStats;
+          this.status = `完成: ${d.generatedTokens} tokens, ${d.tokensPerSecond.toFixed(1)} t/s`;
+      } else if (event === 'stopped') {
         const d = data as GenerateStats;
-        this.status = `完成: ${d.generatedTokens} tokens, ${d.tokensPerSecond.toFixed(1)} t/s`;
+        this.status = `已停止: ${d.generatedTokens} tokens, ${d.tokensPerSecond.toFixed(1)} t/s`;
       } else if (event === 'error') {
-        const d = data as GenerateError;
-        this.status = `错误(${d.code}): ${d.message}`;
-      }
-    });
+          const d = data as GenerateError;
+          this.status = `错误(${d.code}): ${d.message}`;
+        }
+      });
+    } catch (e) {
+      this.status = '生成失败: ' + String(e);
+    }
   }
 }

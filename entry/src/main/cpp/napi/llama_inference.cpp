@@ -8,7 +8,7 @@
 
 namespace inference {
 
-bool RunGeneration(
+GenResult RunGeneration(
     const GenerateParams & params,
     const std::function<void(const char * text)> & on_token,
     const std::function<bool()> & should_stop,
@@ -19,7 +19,7 @@ bool RunGeneration(
     const llama_vocab * vocab = EngineState::Instance().vocab();
 
     if (model == nullptr || ctx == nullptr || vocab == nullptr) {
-        return false;
+        return GenResult::Failed;
     }
 
     if (params.threads > 0) {
@@ -43,14 +43,14 @@ bool RunGeneration(
                                              nullptr, 0, true, true);
     if (n_prompt <= 0) {
         llama_sampler_free(smpl);
-        return false;
+        return GenResult::Failed;
     }
 
     std::vector<llama_token> prompt_tokens(static_cast<size_t>(n_prompt));
     if (llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
                        prompt_tokens.data(), n_prompt, true, true) < 0) {
         llama_sampler_free(smpl);
-        return false;
+        return GenResult::Failed;
     }
 
     llama_batch batch = llama_batch_get_one(prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()));
@@ -60,26 +60,29 @@ bool RunGeneration(
     const int64_t t_start = llama_time_us();
     int64_t t_first = 0;
     bool first_token = true;
+    bool stopped = false;
     llama_token new_token_id = LLAMA_TOKEN_NULL;
 
     for (int32_t i = 0; i < params.max_tokens; i++) {
         if (should_stop()) {
+            stopped = true;
             break;
         }
 
         if (llama_decode(ctx, batch) != 0) {
             if (should_stop()) {
+                stopped = true;
                 break;
             }
             llama_sampler_free(smpl);
-            return false;
+            return GenResult::Failed;
         }
 
         new_token_id = llama_sampler_sample(smpl, ctx, -1);
 
         if (first_token) {
             t_first = llama_time_us();
-            out_stats.ttft_ms = static_cast<double>(t_first - t_start) / 1000.0;
+            out_stats.ttft_ms = (t_first - t_start) / 1000.0;
             first_token = false;
         }
 
@@ -106,7 +109,7 @@ bool RunGeneration(
     }
 
     llama_sampler_free(smpl);
-    return true;
+    return stopped ? GenResult::Aborted : GenResult::Completed;
 }
 
 } // namespace inference

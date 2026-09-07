@@ -44,10 +44,3 @@ void TsFn::Release() {
         tsfn_ = nullptr;
     }
 }
-
-void TsFn::Abort() {
-    if (tsfn_ != nullptr) {
-        napi_release_threadsafe_function(tsfn_, napi_tsfn_abort);
-        tsfn_ = nullptr;
-    }
-}

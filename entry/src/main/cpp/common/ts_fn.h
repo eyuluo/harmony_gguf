@@ -22,9 +22,6 @@ public:
     // 释放线程安全函数（最后一个引用释放后真正销毁）
     void Release();
 
-    // 禁止再入队（用于停止生成后不再派发回调）
-    void Abort();
-
     bool valid() const { return tsfn_ != nullptr; }
 
 private:

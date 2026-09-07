@@ -1,8 +1,15 @@
 #include "http_server.h"
 
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "engine_state.h"
@@ -17,8 +24,62 @@ using json = nlohmann::json;
 
 namespace {
 
-// 生成串行锁：单模型实例，同一时刻只处理一个生成任务
-std::mutex g_generate_mutex;
+// FIFO 生成队列：单模型实例，同一时刻只处理一个生成任务，且按请求到达顺序串行。
+class GenerateQueue {
+public:
+    // 进入队列，阻塞直到轮到自己（或服务被停止），返回是否可继续生成
+    bool Wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        uint64_t ticket = next_ticket_++;
+        cond_.wait(lock, [&]() { return stopped_ || serving_ == ticket; });
+        return !stopped_;
+    }
+
+    // 离开队列，唤醒下一个等待者
+    void Leave() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        serving_++;
+        cond_.notify_all();
+    }
+
+    // 服务停止时唤醒所有等待者（避免阻塞 listen 线程退出）
+    void StopAll() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopped_ = true;
+        cond_.notify_all();
+    }
+
+    // 服务重新启动时复位停止标志，并对齐 ticket（上次停止时排队请求未正常 Leave）
+    void Reset() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopped_ = false;
+        serving_ = next_ticket_;
+    }
+
+private:
+    std::mutex mutex_;
+    std::condition_variable cond_;
+    uint64_t next_ticket_ = 0;
+    uint64_t serving_ = 0;
+    bool stopped_ = false;
+};
+
+GenerateQueue g_generate_queue;
+
+// RAII 守卫：构造时进入 FIFO 队列，析构时自动离开
+class GenerateQueueGuard {
+public:
+    GenerateQueueGuard() : acquired_(g_generate_queue.Wait()) {}
+    ~GenerateQueueGuard() {
+        if (acquired_) {
+            g_generate_queue.Leave();
+        }
+    }
+    bool acquired() const { return acquired_; }
+
+private:
+    bool acquired_;
+};
 
 // 从请求 JSON 提取生成参数
 GenerateParams ParseGenerateParams(const json & body, const std::string & prompt) {
@@ -44,11 +105,46 @@ GenerateParams ParseGenerateParams(const json & body, const std::string & prompt
     return params;
 }
 
-// 用 chatml 模板把 messages 组装为 prompt
-std::string BuildChatPrompt(const json & messages) {
+// 架构 → 聊天模板名映射（与 registry/models.json 的 chatTemplate 字段对齐）
+const char * ChatTemplateForArch(const std::string & arch) {
+    static const std::unordered_map<std::string, const char *> kArchTemplates = {
+        { "llama", "llama3" },
+        { "qwen2", "chatml" },
+        { "qwen2moe", "chatml" },
+        { "qwen3", "chatml" },
+        { "gemma", "gemma" },
+        { "gemma2", "gemma" },
+        { "mistral", "mistral-v7" },
+        { "deepseek", "deepseek3" },
+        { "deepseek2", "deepseek2" },
+        { "chatglm", "chatglm3" },
+        { "glm4", "chatglm4" },
+    };
+    auto it = kArchTemplates.find(arch);
+    return it != kArchTemplates.end() ? it->second : "chatml";
+}
+
+// 解析当前模型应使用的聊天模板：优先 GGUF 内置模板，其次按架构匹配，最终回退 chatml
+std::string ResolveChatTemplate() {
+    llama_model * model = EngineState::Instance().model();
+    if (model != nullptr) {
+        const char * builtin = llama_model_chat_template(model, nullptr);
+        if (builtin != nullptr && builtin[0] != '\0') {
+            return std::string(builtin);
+        }
+        char arch[128] = {0};
+        int32_t len = llama_model_meta_val_str(model, "general.architecture", arch, sizeof(arch));
+        if (len > 0) {
+            return ChatTemplateForArch(std::string(arch, static_cast<size_t>(len)));
+        }
+    }
+    return "chatml";
+}
+
+// 用指定聊天模板把 messages 组装为 prompt
+std::string BuildChatPrompt(const std::string & tmpl, const json & messages) {
     std::vector<std::string> roles;
     std::vector<std::string> contents;
-    std::vector<llama_chat_message> msgs;
 
     for (const auto & m : messages) {
         if (!m.contains("role") || !m.contains("content")) {
@@ -56,14 +152,20 @@ std::string BuildChatPrompt(const json & messages) {
         }
         roles.emplace_back(m["role"].get<std::string>());
         contents.emplace_back(m["content"].get<std::string>());
-        llama_chat_message msg;
-        msg.role = roles.back().c_str();
-        msg.content = contents.back().c_str();
-        msgs.push_back(msg);
     }
 
-    if (msgs.empty()) {
+    if (roles.empty()) {
         return "";
+    }
+
+    // 字符串全部就位后再取指针，避免后续扩容导致悬空
+    std::vector<llama_chat_message> msgs;
+    msgs.reserve(roles.size());
+    for (size_t i = 0; i < roles.size(); ++i) {
+        llama_chat_message msg;
+        msg.role = roles[i].c_str();
+        msg.content = contents[i].c_str();
+        msgs.push_back(msg);
     }
 
     // 预估 buffer（2 倍消息总长 + 2048），不足时按返回值扩展
@@ -73,11 +175,11 @@ std::string BuildChatPrompt(const json & messages) {
     }
 
     std::vector<char> buf(total);
-    int32_t len = llama_chat_apply_template("chatml", msgs.data(), static_cast<size_t>(msgs.size()), true,
+    int32_t len = llama_chat_apply_template(tmpl.c_str(), msgs.data(), static_cast<size_t>(msgs.size()), true,
                                             buf.data(), static_cast<int32_t>(buf.size()));
     if (len < 0) {
         buf.resize(static_cast<size_t>(-len));
-        len = llama_chat_apply_template("chatml", msgs.data(), static_cast<size_t>(msgs.size()), true,
+        len = llama_chat_apply_template(tmpl.c_str(), msgs.data(), static_cast<size_t>(msgs.size()), true,
                                         buf.data(), static_cast<int32_t>(buf.size()));
     }
 
@@ -85,6 +187,33 @@ std::string BuildChatPrompt(const json & messages) {
         return "";
     }
     return std::string(buf.data(), static_cast<size_t>(len));
+}
+
+// 获取本机局域网 IPv4 地址（跳过回环，取第一个非 127.0.0.1 地址）
+std::string GetLocalIPv4() {
+    std::string result;
+    struct ifaddrs * ifap = nullptr;
+    if (getifaddrs(&ifap) != 0) {
+        return result;
+    }
+    for (struct ifaddrs * ifa = ifap; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || ifa->ifa_addr->sa_family != AF_INET) {
+            continue;
+        }
+        auto * addr = reinterpret_cast<struct sockaddr_in *>(ifa->ifa_addr);
+        char buf[INET_ADDRSTRLEN] = {0};
+        if (inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf)) == nullptr) {
+            continue;
+        }
+        std::string ip(buf);
+        if (ip == "127.0.0.1") {
+            continue;
+        }
+        result = ip;
+        break;
+    }
+    freeifaddrs(ifap);
+    return result;
 }
 
 // 是否应停止生成
@@ -142,6 +271,75 @@ bool AuthFailed(const ServerConfig & config, const httplib::Request & req, httpl
     return false;
 }
 
+// 流式生成：逐 token 写 SSE，chunk 结构由 make_chunk 决定
+void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink,
+                         const std::function<json(const std::string &)> & make_chunk) {
+    GenerateQueueGuard guard;
+    if (!guard.acquired()) {
+        return;
+    }
+
+    if (!EngineState::Instance().TryBeginGenerate()) {
+        std::string err = "data: {\"error\":\"generation in progress\"}\n\n";
+        sink.write(err.data(), err.size());
+        return;
+    }
+
+    GenerateStats stats;
+    inference::GenResult result = inference::RunGeneration(
+        params,
+        [&sink, &make_chunk](const char * text) {
+            std::string data = "data: " + make_chunk(text).dump() + "\n\n";
+            sink.write(data.data(), data.size());
+        },
+        ShouldStop,
+        stats);
+
+    EngineState::Instance().EndGenerate();
+
+    if (result == inference::GenResult::Failed) {
+        std::string err = "data: {\"error\":\"generation failed\"}\n\n";
+        sink.write(err.data(), err.size());
+    }
+    std::string done = "data: [DONE]\n\n";
+    sink.write(done.data(), done.size());
+}
+
+// 非流式生成：一次性生成并写回响应，响应结构由 make_response 决定
+void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
+                       const std::function<json(const std::string &, const GenerateStats &)> & make_response) {
+    GenerateQueueGuard guard;
+    if (!guard.acquired()) {
+        res.status = 503;
+        res.set_content("{\"error\":\"server shutting down\"}", "application/json");
+        return;
+    }
+
+    if (!EngineState::Instance().TryBeginGenerate()) {
+        res.status = 503;
+        res.set_content("{\"error\":\"generation in progress\"}", "application/json");
+        return;
+    }
+
+    std::string text;
+    GenerateStats stats;
+    inference::GenResult result = inference::RunGeneration(
+        params,
+        [&text](const char * t) { text += t; },
+        ShouldStop,
+        stats);
+
+    EngineState::Instance().EndGenerate();
+
+    if (result == inference::GenResult::Failed) {
+        res.status = 500;
+        res.set_content("{\"error\":\"generation failed\"}", "application/json");
+        return;
+    }
+
+    res.set_content(make_response(text, stats).dump(), "application/json");
+}
+
 } // namespace
 
 HttpServer & HttpServer::Instance() {
@@ -156,6 +354,7 @@ int32_t HttpServer::Start(const ServerConfig & config) {
     }
 
     config_ = config;
+    g_generate_queue.Reset();
 
     auto * svr = new httplib::Server();
 
@@ -204,60 +403,22 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
 
-        std::string prompt = body["prompt"].get<std::string>();
-        GenerateParams params = ParseGenerateParams(body, prompt);
+        GenerateParams params = ParseGenerateParams(body, body["prompt"].get<std::string>());
         bool stream = body.value("stream", false);
         std::string model_id = CurrentModelId();
 
         if (stream) {
             res.set_chunked_content_provider("text/event-stream",
                 [params](size_t, httplib::DataSink & sink) -> bool {
-                    std::lock_guard<std::mutex> gen_lock(g_generate_mutex);
-
-                    GenerateStats stats;
-                    std::string token_text;
-                    bool ok = inference::RunGeneration(
-                        params,
-                        [&sink, &token_text](const char * text) {
-                            token_text = text;
-                            json chunk = {
-                                { "choices", json::array({
-                                    { { "index", 0 }, { "text", token_text } }
-                                }) }
-                            };
-                            std::string data = "data: " + chunk.dump() + "\n\n";
-                            sink.write(data.data(), data.size());
-                        },
-                        ShouldStop,
-                        stats);
-
-                    if (!ok) {
-                        std::string err = "data: {\"error\":\"generation failed\"}\n\n";
-                        sink.write(err.data(), err.size());
-                    }
-                    std::string done = "data: [DONE]\n\n";
-                    sink.write(done.data(), done.size());
+                    RunStreamGeneration(params, sink, [](const std::string & t) {
+                        return json{ { "choices", json::array({ { { "index", 0 }, { "text", t } } }) } };
+                    });
                     return true;
                 });
         } else {
-            std::lock_guard<std::mutex> gen_lock(g_generate_mutex);
-
-            std::string text;
-            GenerateStats stats;
-            bool ok = inference::RunGeneration(
-                params,
-                [&text](const char * t) { text += t; },
-                ShouldStop,
-                stats);
-
-            if (!ok) {
-                res.status = 500;
-                res.set_content("{\"error\":\"generation failed\"}", "application/json");
-                return;
-            }
-
-            json resp = BuildCompletionResponse(text, stats, model_id);
-            res.set_content(resp.dump(), "application/json");
+            RunSyncGeneration(params, res, [model_id](const std::string & text, const GenerateStats & stats) {
+                return BuildCompletionResponse(text, stats, model_id);
+            });
         }
     });
 
@@ -278,7 +439,7 @@ int32_t HttpServer::Start(const ServerConfig & config) {
 
         std::string prompt;
         if (body.contains("messages") && body["messages"].is_array()) {
-            prompt = BuildChatPrompt(body["messages"]);
+            prompt = BuildChatPrompt(ResolveChatTemplate(), body["messages"]);
         } else if (body.contains("prompt") && body["prompt"].is_string()) {
             prompt = body["prompt"].get<std::string>();
         }
@@ -296,68 +457,29 @@ int32_t HttpServer::Start(const ServerConfig & config) {
         if (stream) {
             res.set_chunked_content_provider("text/event-stream",
                 [params](size_t, httplib::DataSink & sink) -> bool {
-                    std::lock_guard<std::mutex> gen_lock(g_generate_mutex);
-
-                    GenerateStats stats;
-                    std::string token_text;
-                    bool ok = inference::RunGeneration(
-                        params,
-                        [&sink, &token_text](const char * text) {
-                            token_text = text;
-                            json chunk = {
-                                { "choices", json::array({
-                                    { { "index", 0 }, { "delta", { { "content", token_text } } } }
-                                }) }
-                            };
-                            std::string data = "data: " + chunk.dump() + "\n\n";
-                            sink.write(data.data(), data.size());
-                        },
-                        ShouldStop,
-                        stats);
-
-                    if (!ok) {
-                        std::string err = "data: {\"error\":\"generation failed\"}\n\n";
-                        sink.write(err.data(), err.size());
-                    }
-                    std::string done = "data: [DONE]\n\n";
-                    sink.write(done.data(), done.size());
+                    RunStreamGeneration(params, sink, [](const std::string & t) {
+                        return json{ { "choices", json::array({ { { "index", 0 }, { "delta", { { "content", t } } } } }) } };
+                    });
                     return true;
                 });
         } else {
-            std::lock_guard<std::mutex> gen_lock(g_generate_mutex);
-
-            std::string text;
-            GenerateStats stats;
-            bool ok = inference::RunGeneration(
-                params,
-                [&text](const char * t) { text += t; },
-                ShouldStop,
-                stats);
-
-            if (!ok) {
-                res.status = 500;
-                res.set_content("{\"error\":\"generation failed\"}", "application/json");
-                return;
-            }
-
-            json resp = {
-                { "id", "chatcmpl-" + std::to_string(llama_time_us()) },
-                { "object", "chat.completion" },
-                { "model", model_id },
-                { "choices", json::array({
-                    {
+            RunSyncGeneration(params, res, [model_id](const std::string & text, const GenerateStats & stats) {
+                return json{
+                    { "id", "chatcmpl-" + std::to_string(llama_time_us()) },
+                    { "object", "chat.completion" },
+                    { "model", model_id },
+                    { "choices", json::array({ {
                         { "index", 0 },
                         { "message", { { "role", "assistant" }, { "content", text } } },
                         { "finish_reason", "stop" }
-                    }
-                }) },
-                { "usage", {
-                    { "prompt_tokens", stats.prompt_tokens },
-                    { "completion_tokens", stats.generated_tokens },
-                    { "total_tokens", stats.prompt_tokens + stats.generated_tokens }
-                } }
-            };
-            res.set_content(resp.dump(), "application/json");
+                    } }) },
+                    { "usage", {
+                        { "prompt_tokens", stats.prompt_tokens },
+                        { "completion_tokens", stats.generated_tokens },
+                        { "total_tokens", stats.prompt_tokens + stats.generated_tokens }
+                    } }
+                };
+            });
         }
     });
 
@@ -381,6 +503,7 @@ void HttpServer::Stop() {
     }
 
     running_ = false;
+    g_generate_queue.StopAll();
 
     auto * svr = static_cast<httplib::Server *>(server_);
     if (svr != nullptr) {
@@ -401,7 +524,13 @@ ServerInfo HttpServer::GetStatus() const {
     info.host = config_.host;
     info.port = config_.port;
     info.running = running_;
-    info.lan_address = (config_.host == "0.0.0.0") ? std::string() : config_.host;
+    info.lan_address.clear();
+    if (running_ && config_.host == "0.0.0.0") {
+        std::string ip = GetLocalIPv4();
+        if (!ip.empty()) {
+            info.lan_address = "http://" + ip + ":" + std::to_string(config_.port);
+        }
+    }
     return info;
 }
 

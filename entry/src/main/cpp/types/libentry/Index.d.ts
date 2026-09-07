@@ -37,11 +37,9 @@ export interface TokenData {
   text: string;
 }
 
-export type GenerateEvent = 'token' | 'done' | 'error';
+export type GenerateEvent = 'token' | 'done' | 'error' | 'stopped';
 
 export type GenerateCallback = (event: GenerateEvent, data: TokenData | GenerateStats | GenerateError) => void;
-
-export const add: (a: number, b: number) => number;
 
 export const parseGgufMetadata: (path: string) => ModelMetadata;
 export const loadModel: (path: string, config?: LoadConfig) => number;

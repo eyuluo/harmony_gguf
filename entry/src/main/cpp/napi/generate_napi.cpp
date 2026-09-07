@@ -5,12 +5,10 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <vector>
 
 #include "engine_state.h"
 #include "engine_types.h"
 #include "error_code.h"
-#include "llama.h"
 #include "llama_inference.h"
 #include "napi_util.h"
 #include "ts_fn.h"
@@ -21,12 +19,13 @@ enum GenEvent : int32_t {
     EVENT_TOKEN = 0,
     EVENT_DONE = 1,
     EVENT_ERROR = 2,
+    EVENT_STOPPED = 3,
 };
 
 // 通过 TSFN 传递给 JS 回调的事件数据
 struct GenCallbackData {
     int32_t event;
-    char text[2048];
+    char text[512];
     int32_t prompt_tokens;
     int32_t generated_tokens;
     double ttft_ms;
@@ -63,7 +62,8 @@ void GenerateJsCallback(napi_env env, napi_value js_cb, void * /*context*/, void
             napi_util::SetProperty(env, js_data, "text", napi_util::NewString(env, cb->text));
             break;
         case EVENT_DONE:
-            js_event = napi_util::NewString(env, "done");
+        case EVENT_STOPPED:
+            js_event = napi_util::NewString(env, cb->event == EVENT_DONE ? "done" : "stopped");
             napi_util::SetProperty(env, js_data, "promptTokens", napi_util::NewInt32(env, cb->prompt_tokens));
             napi_util::SetProperty(env, js_data, "generatedTokens", napi_util::NewInt32(env, cb->generated_tokens));
             napi_util::SetProperty(env, js_data, "ttftMs", napi_util::NewDouble(env, cb->ttft_ms));
@@ -91,7 +91,7 @@ void SendToken(TsFn * cb, const char * text) {
     GenCallbackData * data = new GenCallbackData();
     std::memset(data, 0, sizeof(*data));
     data->event = EVENT_TOKEN;
-    snprintf(data->text, sizeof(data->text), "%s", text);
+    strncpy(data->text, text, sizeof(data->text) - 1);
     cb->Call(data);
 }
 
@@ -99,6 +99,14 @@ void SendDone(TsFn * cb, const GenerateStats & stats) {
     GenCallbackData * data = new GenCallbackData();
     std::memset(data, 0, sizeof(*data));
     data->event = EVENT_DONE;
+    FillStats(data, stats);
+    cb->Call(data);
+}
+
+void SendStopped(TsFn * cb, const GenerateStats & stats) {
+    GenCallbackData * data = new GenCallbackData();
+    std::memset(data, 0, sizeof(*data));
+    data->event = EVENT_STOPPED;
     FillStats(data, stats);
     cb->Call(data);
 }
@@ -118,17 +126,19 @@ void * GenerateThread(void * arg) {
     TsFn * cb = task->callback;
     const GenerateParams & params = task->params;
 
-    EngineState::Instance().ClearStop();
-
     GenerateStats stats;
-    bool ok = inference::RunGeneration(
+    inference::GenResult result = inference::RunGeneration(
         params,
         [cb](const char * text) { SendToken(cb, text); },
         []() { return EngineState::Instance().StopRequested(); },
         stats);
 
-    if (ok) {
+    EngineState::Instance().EndGenerate();
+
+    if (result == inference::GenResult::Completed) {
         SendDone(cb, stats);
+    } else if (result == inference::GenResult::Aborted) {
+        SendStopped(cb, stats);
     } else {
         SendError(cb, error_code_value(ErrorCode::InferenceFailed), "generation failed");
     }
@@ -167,6 +177,13 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
+    // 占位生成（同一时刻仅一个生成任务），成功后再清除上次残留的停止标志
+    if (!EngineState::Instance().TryBeginGenerate()) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidState), "generation already in progress");
+        return nullptr;
+    }
+    EngineState::Instance().ClearStop();
+
     GenerateParams params;
     params.prompt = prompt;
 
@@ -193,6 +210,7 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
 
     TsFn * cb = new TsFn(env, args[2], "generate", GenerateJsCallback);
     if (!cb->valid()) {
+        EngineState::Instance().EndGenerate();
         delete cb;
         napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), "failed to create callback");
         return nullptr;
@@ -205,6 +223,7 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     pthread_t thread;
     int rc = pthread_create(&thread, nullptr, GenerateThread, task);
     if (rc != 0) {
+        EngineState::Instance().EndGenerate();
         delete task;
         cb->Release();
         delete cb;

@@ -2,6 +2,7 @@
 #define HARMONY_GGUF_ENGINE_STATE_H
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -50,13 +51,38 @@ public:
     void ClearStop() { stop_requested_.store(false, std::memory_order_relaxed); }
     bool StopRequested() const { return stop_requested_.load(std::memory_order_relaxed); }
 
+    // 尝试开始生成：同一时刻仅一个生成任务，返回 false 表示已有生成进行中。
+    // 与 LoadModel/UnloadModel 共用 mutex_，保证「检查 generating → free」原子。
+    bool TryBeginGenerate() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (generating_) {
+            return false;
+        }
+        generating_ = true;
+        return true;
+    }
+
+    void EndGenerate() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        generating_ = false;
+        gen_cv_.notify_all();
+    }
+
+    // 等待当前生成结束（调用前应先 RequestStop 以触发生成线程退出）
+    void WaitGenerateEnd() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        gen_cv_.wait(lock, [this]() { return !generating_; });
+    }
+
 private:
     EngineState() = default;
 
     mutable std::mutex mutex_;
+    std::condition_variable gen_cv_;
     llama_model * model_ = nullptr;
     llama_context * ctx_ = nullptr;
     std::atomic_bool stop_requested_{false};
+    bool generating_ = false;
 };
 
 #endif // HARMONY_GGUF_ENGINE_STATE_H
