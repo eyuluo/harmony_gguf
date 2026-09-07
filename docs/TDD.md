@@ -49,13 +49,17 @@
 ### 3.2 推理
 | 接口 | 说明 |
 |------|------|
-| generate | 流式生成：以回调方式逐 token 返回，完成 / 出错时通过回调通知（onToken / onDone / onError） |
-| stopGenerate | 停止当前生成（通过原子标志位中断） |
+| generate | 流式生成：以回调方式逐 token 返回，完成 / 出错时通过回调通知（onToken / onDone / onError）；返回 requestId 用于停止 |
+| stopGenerate | 停止指定 requestId 的生成 |
+| stopAllGenerations | 停止所有进行中的生成 |
 
 ### 3.3 关键数据结构（字段说明）
 
 | 结构 | 字段 | 说明 |
 |------|------|------|
+| LoadConfig | contextLength | 每槽位上下文长度（0 = 使用模型默认） |
+| | threads | 推理线程数 |
+| | parallel | 并发槽位数（同时进行的生成任务数，默认 2） |
 | ModelMetadata | architecture | 架构，如 llama / qwen |
 | | parameters | 参数量，如 "7B" |
 | | quantization | 量化等级，如 "Q4_K_M" |
@@ -67,7 +71,6 @@
 | | topP | top-p 采样 |
 | | repeatPenalty | 重复惩罚 |
 | | maxTokens | 最大生成长度 |
-| | contextLength | 上下文长度 |
 | | threads | 线程数 |
 | GenerateStats | promptTokens | 提示词 token 数 |
 | | generatedTokens | 生成 token 数 |
@@ -101,13 +104,15 @@
 ## 4. 线程模型
 
 - **主线程（ArkTS）**：仅负责 UI 渲染与状态更新。
-- **推理线程（C++，独立 pthread）**：执行模型推理，避免阻塞 UI。
+- **推理线程（C++，每个生成任务一个独立 pthread）**：执行模型推理，避免阻塞 UI。
 - **回调机制**：NAPI `napi_threadsafe_function` 将 token 从推理线程安全回调到 JS 线程。
+- **多槽位并发**：单模型实例可同时处理多个生成任务（槽位数由 `LoadConfig.parallel` 决定，默认 2）；每个任务独占一个 KV cache 序列槽位（seq_id）与独立采样器；`llama_decode` 非线程安全，用互斥锁保护，请求间交错执行。
 
 ```
-ArkTS UI  ──NAPI调用──►  C++ 推理线程 ──线程安全函数──►  JS 回调(逐 token)
+ArkTS UI ──NAPI调用──►  C++ 推理线程 ──线程安全函数──►  JS 回调(逐 token)
                               │
-                        stopGenerate（原子标志位）◄──────── 用户点击停止
+             stopGenerate(requestId) ◄──────────── 用户点击停止
+             stopAllGenerations()  ◄──────────── 停止全部
 ```
 
 ## 5. 数据流
@@ -133,7 +138,7 @@ ArkTS UI  ──NAPI调用──►  C++ 推理线程 ──线程安全函数�
 ### 5.3 Serve 请求流程
 ```
 外部客户端(HTTP) → cpp-httplib 路由 → 鉴权校验
-  → 进入请求队列 → 推理引擎生成
+  → 分配并发槽位（满则排队等待） → 推理引擎生成
   → SSE 逐 token 返回 data: {...}
   → 结束 → data: [DONE] → 关闭连接
 ```
@@ -191,7 +196,7 @@ ArkTS UI  ──NAPI调用──►  C++ 推理线程 ──线程安全函数�
 ## 9. Serve 服务设计
 
 ### 9.1 架构
-Serve 复用推理引擎，通过 cpp-httplib 暴露 HTTP 接口；运行于独立线程，与 UI 推理共用同一已加载模型（单模型实例 + 请求队列）。
+Serve 复用推理引擎，通过 cpp-httplib 暴露 HTTP 接口；运行于独立线程，与 UI 推理共用同一已加载模型（单模型实例 + 多槽位并发）。
 
 Serve 支持独立启动模式：可作为常驻服务单独运行，无需进入对话界面；生命周期与 UI 解耦，由专门的 ServeController 管理。
 
@@ -208,8 +213,9 @@ Serve 支持独立启动模式：可作为常驻服务单独运行，无需进�
 `stream: true` 时返回 `Content-Type: text/event-stream`，逐 token 输出 `data: {...}\n\n`，结束发送 `data: [DONE]`。
 
 ### 9.4 请求调度
-- 单模型实例：同一时刻只处理一个生成任务，其余请求进入 FIFO 队列。
-- 停止：可通过原子标志位中断当前生成。
+- 单模型实例 + 多槽位并发：同时处理多个生成任务，并发数由 `LoadConfig.parallel` 决定（默认 2）；任务独占一个 KV cache 序列槽位（seq_id）。
+- 满负载：Serve 请求超出槽位数时排队等待空闲槽位。
+- 停止：`stopGenerate(requestId)` 按请求停止，`stopAllGenerations()` 停止全部；长对话达到槽位上下文上限时自动滑动上下文窗口（context shift）。
 - 鉴权：配置 API Key 时校验 `Authorization: Bearer <key>`。
 
 ### 9.5 安全
@@ -237,7 +243,7 @@ Serve 支持独立启动模式：可作为常驻服务单独运行，无需进�
 | NAPI 线程安全回调复杂 | 崩溃风险 | 封装 `napi_threadsafe_function` 工具类并单测 |
 | 移动端内存不足 | 加载/推理失败 | 限制 context 长度、推荐量化模型、OOM 优雅降级 |
 | NPU 算子支持不全 | 加速受限 | P0 仅 CPU，NPU 作为 P2 独立后端 |
-| Serve 并发访问导致线程竞争 | 崩溃 / 结果错乱 | 单实例 + 请求队列串行调度，加锁保护推理状态 |
+| Serve 并发访问导致线程竞争 | 崩溃 / 结果错乱 | 单实例 + 多槽位并发，每个槽位独立 KV cache 序列与采样器；`llama_decode` 加锁保护推理状态 |
 
 ## 12. 里程碑（MVP）
 

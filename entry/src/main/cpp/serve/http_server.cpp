@@ -4,9 +4,10 @@
 #include <ifaddrs.h>
 #include <netinet/in.h>
 
-#include <condition_variable>
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -24,61 +25,25 @@ using json = nlohmann::json;
 
 namespace {
 
-// FIFO 生成队列：单模型实例，同一时刻只处理一个生成任务，且按请求到达顺序串行。
-class GenerateQueue {
+// 并发槽位守卫：构造时阻塞获取一个空闲槽位（服务停止时失败），析构时自动释放。
+class SlotGuard {
 public:
-    // 进入队列，阻塞直到轮到自己（或服务被停止），返回是否可继续生成
-    bool Wait() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        uint64_t ticket = next_ticket_++;
-        cond_.wait(lock, [&]() { return stopped_ || serving_ == ticket; });
-        return !stopped_;
-    }
-
-    // 离开队列，唤醒下一个等待者
-    void Leave() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        serving_++;
-        cond_.notify_all();
-    }
-
-    // 服务停止时唤醒所有等待者（避免阻塞 listen 线程退出）
-    void StopAll() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stopped_ = true;
-        cond_.notify_all();
-    }
-
-    // 服务重新启动时复位停止标志，并对齐 ticket（上次停止时排队请求未正常 Leave）
-    void Reset() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stopped_ = false;
-        serving_ = next_ticket_;
-    }
-
-private:
-    std::mutex mutex_;
-    std::condition_variable cond_;
-    uint64_t next_ticket_ = 0;
-    uint64_t serving_ = 0;
-    bool stopped_ = false;
-};
-
-GenerateQueue g_generate_queue;
-
-// RAII 守卫：构造时进入 FIFO 队列，析构时自动离开
-class GenerateQueueGuard {
-public:
-    GenerateQueueGuard() : acquired_(g_generate_queue.Wait()) {}
-    ~GenerateQueueGuard() {
-        if (acquired_) {
-            g_generate_queue.Leave();
+    SlotGuard()
+        : id_(EngineState::Instance().BeginGenerateBlocking(seq_id_, stop_flag_,
+                                                            []() { return !HttpServer::Instance().IsRunning(); })) {}
+    ~SlotGuard() {
+        if (id_ != 0) {
+            EngineState::Instance().EndGenerate(id_, seq_id_);
         }
     }
-    bool acquired() const { return acquired_; }
+    bool acquired() const { return id_ != 0; }
+    llama_seq_id seq_id() const { return seq_id_; }
+    const std::shared_ptr<std::atomic_bool> & stop_flag() const { return stop_flag_; }
 
 private:
-    bool acquired_;
+    uint64_t id_ = 0;
+    llama_seq_id seq_id_ = -1;
+    std::shared_ptr<std::atomic_bool> stop_flag_;
 };
 
 // 从请求 JSON 提取生成参数
@@ -218,7 +183,7 @@ std::string GetLocalIPv4() {
 
 // 是否应停止生成
 bool ShouldStop() {
-    return EngineState::Instance().StopRequested() || !HttpServer::Instance().IsRunning();
+    return !HttpServer::Instance().IsRunning();
 }
 
 // 构造 OpenAI 风格完成响应
@@ -237,7 +202,9 @@ json BuildCompletionResponse(const std::string & text, const GenerateStats & sta
         { "usage", {
             { "prompt_tokens", stats.prompt_tokens },
             { "completion_tokens", stats.generated_tokens },
-            { "total_tokens", stats.prompt_tokens + stats.generated_tokens }
+            { "total_tokens", stats.prompt_tokens + stats.generated_tokens },
+            { "time_to_first_token_ms", stats.ttft_ms },
+            { "tokens_per_second", stats.tokens_per_second }
         } }
     };
 }
@@ -274,19 +241,15 @@ bool AuthFailed(const ServerConfig & config, const httplib::Request & req, httpl
 // 流式生成：逐 token 写 SSE，chunk 结构由 make_chunk 决定
 void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink,
                          const std::function<json(const std::string &)> & make_chunk) {
-    GenerateQueueGuard guard;
+    SlotGuard guard;
     if (!guard.acquired()) {
-        return;
-    }
-
-    if (!EngineState::Instance().TryBeginGenerate()) {
-        std::string err = "data: {\"error\":\"generation in progress\"}\n\n";
-        sink.write(err.data(), err.size());
         return;
     }
 
     GenerateStats stats;
     inference::GenResult result = inference::RunGeneration(
+        guard.seq_id(),
+        guard.stop_flag(),
         params,
         [&sink, &make_chunk](const char * text) {
             std::string data = "data: " + make_chunk(text).dump() + "\n\n";
@@ -295,12 +258,23 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
         ShouldStop,
         stats);
 
-    EngineState::Instance().EndGenerate();
-
     if (result == inference::GenResult::Failed) {
         std::string err = "data: {\"error\":\"generation failed\"}\n\n";
         sink.write(err.data(), err.size());
     }
+
+    json usage_chunk = {
+        { "usage", {
+            { "prompt_tokens", stats.prompt_tokens },
+            { "completion_tokens", stats.generated_tokens },
+            { "total_tokens", stats.prompt_tokens + stats.generated_tokens },
+            { "time_to_first_token_ms", stats.ttft_ms },
+            { "tokens_per_second", stats.tokens_per_second }
+        } }
+    };
+    std::string usage = "data: " + usage_chunk.dump() + "\n\n";
+    sink.write(usage.data(), usage.size());
+
     std::string done = "data: [DONE]\n\n";
     sink.write(done.data(), done.size());
 }
@@ -308,28 +282,22 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
 // 非流式生成：一次性生成并写回响应，响应结构由 make_response 决定
 void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
                        const std::function<json(const std::string &, const GenerateStats &)> & make_response) {
-    GenerateQueueGuard guard;
+    SlotGuard guard;
     if (!guard.acquired()) {
         res.status = 503;
         res.set_content("{\"error\":\"server shutting down\"}", "application/json");
         return;
     }
 
-    if (!EngineState::Instance().TryBeginGenerate()) {
-        res.status = 503;
-        res.set_content("{\"error\":\"generation in progress\"}", "application/json");
-        return;
-    }
-
     std::string text;
     GenerateStats stats;
     inference::GenResult result = inference::RunGeneration(
+        guard.seq_id(),
+        guard.stop_flag(),
         params,
         [&text](const char * t) { text += t; },
         ShouldStop,
         stats);
-
-    EngineState::Instance().EndGenerate();
 
     if (result == inference::GenResult::Failed) {
         res.status = 500;
@@ -354,7 +322,6 @@ int32_t HttpServer::Start(const ServerConfig & config) {
     }
 
     config_ = config;
-    g_generate_queue.Reset();
 
     auto * svr = new httplib::Server();
 
@@ -476,7 +443,9 @@ int32_t HttpServer::Start(const ServerConfig & config) {
                     { "usage", {
                         { "prompt_tokens", stats.prompt_tokens },
                         { "completion_tokens", stats.generated_tokens },
-                        { "total_tokens", stats.prompt_tokens + stats.generated_tokens }
+                        { "total_tokens", stats.prompt_tokens + stats.generated_tokens },
+                        { "time_to_first_token_ms", stats.ttft_ms },
+                        { "tokens_per_second", stats.tokens_per_second }
                     } }
                 };
             });
@@ -503,7 +472,6 @@ void HttpServer::Stop() {
     }
 
     running_ = false;
-    g_generate_queue.StopAll();
 
     auto * svr = static_cast<httplib::Server *>(server_);
     if (svr != nullptr) {

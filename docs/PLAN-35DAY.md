@@ -21,7 +21,7 @@
 
 优先级映射：**P0**（阶段 1–4）+ **P1 Serve**（阶段 5）。会话历史/性能监控属 P1，为凑齐 MVP 验收提前到阶段 4 一并完成。
 
-架构与聊天模板范围不收缩：引擎侧完整覆盖主流架构（llama / qwen2 / gemma / mistral / deepseek / chatglm 等）并内置对应聊天模板。为压缩 M1 至 10 天，特殊架构（deepseek / chatglm）与完整聊天模板后移至阶段 2 补齐，主路径（llama / qwen2）优先打通。仅「内置模型注册表」作为独立 P1 功能（FR-26~29 的条目化 JSON 资源与匹配逻辑）不纳入 35 天。
+架构与聊天模板范围不收缩：引擎侧完整覆盖主流架构（llama / qwen2 / gemma / mistral / deepseek / chatglm 等）并内置对应聊天模板。为压缩 M1 至 10 天，特殊架构（deepseek / chatglm）与完整聊天模板后移至阶段 2 补齐，主路径（llama / qwen2）优先打通。仅「内置模型注册表」作为独立 P1 功能（FR-27~30 的条目化 JSON 资源与匹配逻辑）不纳入 35 天。
 
 ## 2. 角色与分工
 
@@ -126,7 +126,7 @@
 
 ### Day 15–16 — 流式回调（A 主责）
 - [A] 封装 `napi_threadsafe_function` 工具类（`common/`）。
-- [A] 实现 `generate`（onToken / onDone / onError）与 `stopGenerate`（原子标志位）。
+- [A] 实现 `generate`（onToken / onDone / onError）与 `stopGenerate`（按 requestId 停止）、`stopAllGenerations`。
 - [A] 推理置于独立 pthread，确认不阻塞 UI 主线程。
 - [C] NAPI 集成测试：参数转换、错误码返回、回调时序；TSFN 连续多 token、停止中断稳定性测试。
 
@@ -190,7 +190,7 @@
 ### Day 29–30 — Serve 核心（A 主责）
 - [A] 引入 cpp-httplib，实现 `startServer` / `stopServer` / `getServerStatus`（`serve/`）。
 - [A] 路由：`GET /health`、`GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/completions`。
-- [A] 复用推理引擎，实现单模型实例 + FIFO 请求队列。
+- [A] 复用推理引擎，实现单模型实例 + 多槽位并发调度（可配置并行度，默认 2）。
 - [B] 实现 `ServeController` 骨架与 Serve 控制 UI（启停、状态）。
 
 ### Day 31 — SSE 流式（A 主责）
@@ -200,7 +200,7 @@
 ### Day 32 — 鉴权与局域网（A 主责）
 - [A] 可选 API Key（`Authorization: Bearer`，失败 401）。
 - [A] 默认 `127.0.0.1`，局域网 `0.0.0.0` 显式开启 + 二次确认；展示访问地址。
-- [C] 鉴权与并发队列测试（401、FIFO 串行）。
+- [C] 鉴权与并发调度测试（401、多槽位并发、满负载排队）。
 
 ### Day 33–34 — 独立启动与集成联调
 - [A] Serve 独立启动模式与后台保持（长时任务）、通知栏/状态栏提示。
@@ -221,9 +221,9 @@
 |------|----------|------|
 | llama.cpp 在 OHOS NDK 编译失败 | 阶段 1 | 阶段 0 提前验证 clang+NEON+pthread；必要时裁剪特性 |
 | 权重加载/算子 bug 拖慢 M1 | 阶段 1 | M1 聚焦主路径 llama/qwen2，特殊架构后移至阶段 2；尽早引入小模型冒烟自测 |
-| NAPI 线程安全回调崩溃 | 阶段 2 | 封装 TSFN 工具类 + 单测覆盖；停止生成走原子标志位 |
+| NAPI 线程安全回调崩溃 | 阶段 2 | 封装 TSFN 工具类 + 单测覆盖；停止生成按 requestId，配合 decode 互斥锁保护 |
 | 移动端内存不足 | 阶段 3/4 | 限制 context 长度、推荐 Q4 量化、OOM 优雅降级 |
-| Serve 并发线程竞争 | 阶段 5 | 单实例 + 请求队列串行，加锁保护推理状态 |
+| Serve 并发线程竞争 | 阶段 5 | 单实例 + 多槽位并发，每槽位独立 KV 序列与采样器，`llama_decode` 加锁保护推理状态 |
 | 注册表匹配失败 | 阶段 3 | 未命中回退通用模板，预留手动选择接口 |
 | 三角色并行接口不齐 | 阶段 2/3 | 以 `API.md` 为接口契约，A/B 在阶段 1 即并行对齐 `Index.d.ts` 与错误码 |
 | 主路径延误挤压特殊架构 | 阶段 1/2 | 特殊架构已后移至阶段 2；若仍延误，优先保 llama/qwen2 + gemma/mistral 主路径，deepseek/chatglm 作为最后补齐项 |
@@ -237,6 +237,6 @@
 
 ## 11. 范围外（35 天内不做）
 
-- 内置模型注册表条目化实现（FR-26~29 的 JSON 资源与自动匹配逻辑）——引擎侧架构与聊天模板已完整覆盖，仅注册表作为独立功能后置。
+- 内置模型注册表条目化实现（FR-27~30 的 JSON 资源与自动匹配逻辑）——引擎侧架构与聊天模板已完整覆盖，仅注册表作为独立功能后置。
 - NPU/GPU 加速、多模态、提示词模板管理、网络模型下载（P2）。
 - 会话导出/分享（P1 扩展）。

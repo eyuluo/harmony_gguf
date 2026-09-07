@@ -65,6 +65,7 @@ Harmony_gguf/
 | `docs/PRD.md` | 产品需求（用户故事、功能/非功能需求、验收标准） |
 | `docs/mvp.md` | 功能范围与优先级（P0/P1/P2） |
 | `docs/TDD.md` | 技术设计（架构、NAPI 接口、数据流、线程模型、Serve） |
+| `docs/API.md` | NAPI 接口契约（数据结构、错误码、接口定义，A/B 联调依据） |
 | `docs/PLAN-35DAY.md` | 35 天开发计划（阶段 0–5、里程碑 M1–M5、三角色分工） |
 
 ## 6. 开发约定
@@ -79,8 +80,8 @@ Harmony_gguf/
 1. **禁止整体拷贝上游源码**：`D:\project\llama.cpp` 仅按 `docs/PORTING.md` 清单**按需移植**所需文件，不整目录复制。
 2. **只保留 CPU 后端**：裁剪 CUDA/Metal/Vulkan/OpenCL/SYCL/CANN/RPC 等所有非 CPU 后端与非 ARM 架构代码。
 3. **架构范围不收缩**：引擎需覆盖 llama / qwen2 / gemma / mistral / deepseek / chatglm 等主流架构及其聊天模板。
-4. **单模型实例**：同一时刻仅一个已加载模型；切换即卸载旧模型。
-5. **流式与线程安全**：生成经 `napi_threadsafe_function` 逐 token 回调，推理置于独立 pthread，不阻塞 UI；停止走原子标志位。
+4. **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型；切换即卸载旧模型。但可同时处理多个生成任务（并发槽位数可配置，默认 2），每个任务独占一个 KV cache 序列槽位与独立采样器。
+5. **流式与线程安全**：生成经 `napi_threadsafe_function` 逐 token 回调，推理置于独立 pthread，不阻塞 UI；`generate` 返回 requestId，`stopGenerate(requestId)` 按请求停止，`stopAllGenerations()` 停止全部；`llama_decode` 用互斥锁保护，请求间交错执行。
 6. **隐私与安全**：全程离线；Serve 默认仅监听 `127.0.0.1`，局域网与鉴权需显式开启。
 7. **测试双轨**：ArkTS 侧用 `@ohos/hypium`（`entry/src/test`）；C++ 侧用 `test/` 下 `testing.h` 框架（用于 M1 本地/真机 shell 验证）。
 

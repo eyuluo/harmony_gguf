@@ -4,8 +4,12 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "llama.h"
 
@@ -13,10 +17,12 @@
 struct LoadConfig {
     uint32_t context_length = 0; // 0 = 使用模型默认
     int32_t  threads = 0;        // 0 = 使用默认线程数
+    uint32_t parallel = 2;       // 并发槽位数（同时进行的生成任务数）
 };
 
-// 引擎全局状态：单模型实例（同一时刻仅一个已加载模型）
-// 推理在独立 pthread 执行，停止走原子标志位。
+// 引擎全局状态：单模型实例 + 多槽位并发。
+// 每个生成任务占用一个 seq_id（KV cache 序列槽位），推理在独立 pthread 执行。
+// llama_context 非线程安全，decode/采样用 decode_mutex_ 互斥，请求间交错执行。
 class EngineState {
 public:
     static EngineState & Instance();
@@ -46,43 +52,75 @@ public:
         return model_ != nullptr ? llama_model_get_vocab(model_) : nullptr;
     }
 
-    // 请求停止当前生成
-    void RequestStop() { stop_requested_.store(true, std::memory_order_relaxed); }
-    void ClearStop() { stop_requested_.store(false, std::memory_order_relaxed); }
-    bool StopRequested() const { return stop_requested_.load(std::memory_order_relaxed); }
-
-    // 尝试开始生成：同一时刻仅一个生成任务，返回 false 表示已有生成进行中。
-    // 与 LoadModel/UnloadModel 共用 mutex_，保证「检查 generating → free」原子。
-    bool TryBeginGenerate() {
+    // 每个槽位的上下文长度上限（未加载时为 0）
+    uint32_t slot_context() const {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (generating_) {
-            return false;
-        }
-        generating_ = true;
-        return true;
+        return slot_context_;
     }
 
-    void EndGenerate() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        generating_ = false;
-        gen_cv_.notify_all();
+    // decode/采样的互斥锁：RunGeneration 在每次 decode 前加锁。
+    std::mutex & decode_mutex() { return decode_mutex_; }
+
+    // ---- 生成会话（槽位）管理 ----
+
+    // 非阻塞分配一个槽位：返回 request id（>0），无空闲槽位返回 0。
+    // 成功时同时写入 seq_id 与 per-request 停止标志。
+    uint64_t BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag);
+
+    // 阻塞分配一个槽位：等待空闲槽位，external_stop 或全局停止时返回 0。
+    uint64_t BeginGenerateBlocking(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag,
+                                   const std::function<bool()> & external_stop);
+
+    // 结束会话：释放槽位、注销停止标志、清除该序列 KV cache。
+    void EndGenerate(uint64_t id, llama_seq_id seq_id);
+
+    // 请求停止指定会话（按 request id）
+    void RequestStop(uint64_t id);
+
+    // 请求停止所有会话（stopAll / 卸载模型）
+    void RequestStopAll();
+    void ClearStopAll() { stop_all_.store(false, std::memory_order_relaxed); }
+    bool StopAllRequested() const { return stop_all_.load(std::memory_order_relaxed); }
+
+    // 当前正在 decode 的请求的停止标志（供 llama abort_callback 查询）
+    void SetActiveStopFlag(const std::atomic_bool * flag) { active_stop_flag_.store(flag, std::memory_order_relaxed); }
+    void ClearActiveStopFlag() { active_stop_flag_.store(nullptr, std::memory_order_relaxed); }
+    bool ActiveStopRequested() const {
+        const std::atomic_bool * flag = active_stop_flag_.load(std::memory_order_relaxed);
+        return flag != nullptr && flag->load(std::memory_order_relaxed);
     }
 
-    // 等待当前生成结束（调用前应先 RequestStop 以触发生成线程退出）
+    // 等待所有生成会话结束（调用前应先 RequestStopAll 以触发生成线程退出）
     void WaitGenerateEnd() {
         std::unique_lock<std::mutex> lock(mutex_);
-        gen_cv_.wait(lock, [this]() { return !generating_; });
+        gen_cv_.wait(lock, [this]() { return active_count_ == 0; });
     }
 
 private:
     EngineState() = default;
 
-    mutable std::mutex mutex_;
-    std::condition_variable gen_cv_;
+    int32_t AcquireSlotLocked();
+    void ReleaseSlot(llama_seq_id seq_id);
+
+    mutable std::mutex mutex_;       // 保护 model_/ctx_/slot_context_/active_count_ 生命周期
+    std::condition_variable gen_cv_; // 等待所有生成结束
+    std::mutex decode_mutex_;        // 保护 llama_decode/采样/KV cache 操作
     llama_model * model_ = nullptr;
     llama_context * ctx_ = nullptr;
-    std::atomic_bool stop_requested_{false};
-    bool generating_ = false;
+    uint32_t slot_context_ = 0;
+    int32_t active_count_ = 0;
+
+    std::atomic_bool stop_all_{false};                                  // 停止所有
+    std::atomic<const std::atomic_bool *> active_stop_flag_{nullptr};   // 当前 decode 的请求停止标志
+
+    std::atomic<uint64_t> next_id_{1};
+
+    std::mutex slot_mutex_;
+    std::condition_variable slot_cv_;
+    std::vector<bool> slot_used_;
+
+    std::mutex sessions_mutex_;
+    std::unordered_map<uint64_t, std::shared_ptr<std::atomic_bool>> sessions_;
 };
 
 #endif // HARMONY_GGUF_ENGINE_STATE_H

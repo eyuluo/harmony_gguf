@@ -1,9 +1,11 @@
 #include <napi/native_api.h>
 #include <pthread.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "engine_state.h"
@@ -35,6 +37,9 @@ struct GenCallbackData {
 };
 
 struct GenerateTask {
+    uint64_t request_id;
+    llama_seq_id seq_id;
+    std::shared_ptr<std::atomic_bool> stop_flag;
     GenerateParams params;
     TsFn * callback;
 };
@@ -125,15 +130,20 @@ void * GenerateThread(void * arg) {
     GenerateTask * task = static_cast<GenerateTask *>(arg);
     TsFn * cb = task->callback;
     const GenerateParams & params = task->params;
+    const uint64_t request_id = task->request_id;
+    const llama_seq_id seq_id = task->seq_id;
+    std::shared_ptr<std::atomic_bool> stop_flag = task->stop_flag;
 
     GenerateStats stats;
     inference::GenResult result = inference::RunGeneration(
+        seq_id,
+        stop_flag,
         params,
         [cb](const char * text) { SendToken(cb, text); },
-        []() { return EngineState::Instance().StopRequested(); },
+        []() { return false; },
         stats);
 
-    EngineState::Instance().EndGenerate();
+    EngineState::Instance().EndGenerate(request_id, seq_id);
 
     if (result == inference::GenResult::Completed) {
         SendDone(cb, stats);
@@ -150,7 +160,7 @@ void * GenerateThread(void * arg) {
 
 } // namespace
 
-// generate(prompt: string, params: GenerateParams, callback: (event, data) => void): void
+// generate(prompt: string, params: GenerateParams, callback: (event, data) => void): number (requestId)
 static napi_value Generate(napi_env env, napi_callback_info info) {
     size_t argc = 3;
     napi_value args[3] = {nullptr};
@@ -177,12 +187,14 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // 占位生成（同一时刻仅一个生成任务），成功后再清除上次残留的停止标志
-    if (!EngineState::Instance().TryBeginGenerate()) {
-        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidState), "generation already in progress");
+    // 分配并发槽位（非阻塞，槽位满则报错）
+    llama_seq_id seq_id = -1;
+    std::shared_ptr<std::atomic_bool> stop_flag;
+    uint64_t request_id = EngineState::Instance().BeginGenerate(seq_id, stop_flag);
+    if (request_id == 0) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidState), "no available generation slot");
         return nullptr;
     }
-    EngineState::Instance().ClearStop();
 
     GenerateParams params;
     params.prompt = prompt;
@@ -210,20 +222,23 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
 
     TsFn * cb = new TsFn(env, args[2], "generate", GenerateJsCallback);
     if (!cb->valid()) {
-        EngineState::Instance().EndGenerate();
+        EngineState::Instance().EndGenerate(request_id, seq_id);
         delete cb;
         napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), "failed to create callback");
         return nullptr;
     }
 
     GenerateTask * task = new GenerateTask();
+    task->request_id = request_id;
+    task->seq_id = seq_id;
+    task->stop_flag = stop_flag;
     task->params = params;
     task->callback = cb;
 
     pthread_t thread;
     int rc = pthread_create(&thread, nullptr, GenerateThread, task);
     if (rc != 0) {
-        EngineState::Instance().EndGenerate();
+        EngineState::Instance().EndGenerate(request_id, seq_id);
         delete task;
         cb->Release();
         delete cb;
@@ -233,13 +248,31 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     pthread_detach(thread);
 
     napi_value result = nullptr;
+    napi_create_int64(env, static_cast<int64_t>(request_id), &result);
+    return result;
+}
+
+// stopGenerate(requestId: number): void
+static napi_value StopGenerate(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    if (argc >= 1) {
+        int64_t request_id = 0;
+        if (napi_get_value_int64(env, args[0], &request_id) == napi_ok) {
+            EngineState::Instance().RequestStop(static_cast<uint64_t>(request_id));
+        }
+    }
+
+    napi_value result = nullptr;
     napi_get_undefined(env, &result);
     return result;
 }
 
-// stopGenerate(): void
-static napi_value StopGenerate(napi_env env, napi_callback_info info) {
-    EngineState::Instance().RequestStop();
+// stopAllGenerations(): void
+static napi_value StopAllGenerations(napi_env env, napi_callback_info info) {
+    EngineState::Instance().RequestStopAll();
 
     napi_value result = nullptr;
     napi_get_undefined(env, &result);
@@ -251,6 +284,7 @@ void RegisterGenerateApi(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
         { "generate", nullptr, Generate, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "stopGenerate", nullptr, StopGenerate, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "stopAllGenerations", nullptr, StopAllGenerations, nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 }

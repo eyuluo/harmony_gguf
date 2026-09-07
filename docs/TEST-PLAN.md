@@ -43,7 +43,7 @@
 ### 阶段 2 — NAPI 桥接（Day 13–18）
 - [ ] NAPI 接口集成测试（parseGgufMetadata / loadModel / unloadModel）
 - [ ] 流式回调稳定性测试（onToken / onDone / onError）
-- [ ] 停止生成原子标志位验证
+- [ ] 停止生成按 requestId 验证（stopGenerate / stopAllGenerations）
 - [ ] 特殊架构（deepseek / chatglm）冒烟补齐
 
 ### 阶段 3 — 模型+对话（Day 19–23）
@@ -61,7 +61,7 @@
 - [ ] Serve API 自动化测试（curl 调用 /health、/v1/models、流式补全）
 - [ ] SSE 流式响应校验（逐 token 格式校验）
 - [ ] 鉴权测试（401 无效/缺失 API Key）
-- [ ] 并发队列测试（FIFO 串行调度）
+- [ ] 并发调度测试（多槽位并发、满负载排队、按请求停止）
 - [ ] 长运行压力测试与并发稳定性
 - [ ] 全量回归（构建 + lint + 单测 + 真机测试）
 

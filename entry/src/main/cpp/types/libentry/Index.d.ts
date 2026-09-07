@@ -10,6 +10,7 @@ export interface ModelMetadata {
 export interface LoadConfig {
   contextLength?: number;
   threads?: number;
+  parallel?: number;
 }
 
 export interface GenerateParams {
@@ -44,8 +45,9 @@ export type GenerateCallback = (event: GenerateEvent, data: TokenData | Generate
 export const parseGgufMetadata: (path: string) => ModelMetadata;
 export const loadModel: (path: string, config?: LoadConfig) => number;
 export const unloadModel: (modelId: number) => void;
-export const generate: (prompt: string, params: GenerateParams, callback: GenerateCallback) => void;
-export const stopGenerate: () => void;
+export const generate: (prompt: string, params: GenerateParams, callback: GenerateCallback) => number;
+export const stopGenerate: (requestId: number) => void;
+export const stopAllGenerations: () => void;
 
 export interface ServerConfig {
   host?: string;

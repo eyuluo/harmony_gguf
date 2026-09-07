@@ -54,7 +54,7 @@
 - [ ] 流式响应（SSE / Server-Sent Events）
 - [ ] 健康检查接口 `GET /health`
 - [ ] 端口与监听地址配置、访问地址展示（含局域网 IP / 二维码）
-- [ ] 请求队列与单模型串行调度、鉴权（可选 API Key）
+- [ ] 单模型多槽位并发调度、鉴权（可选 API Key）
 
 ### 6. 内置模型注册表（P1）
 - [ ] 内置主流开源模型清单（llama / qwen / gemma / mistral / deepseek / chatglm 等）

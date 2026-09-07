@@ -115,10 +115,13 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
     if (argc >= 2) {
         uint32_t context_length = 0;
         int32_t threads = 0;
+        uint32_t parallel = config.parallel;
         napi_util::GetOptionalUint32(env, args[1], "contextLength", context_length);
         napi_util::GetOptionalInt32(env, args[1], "threads", threads);
+        napi_util::GetOptionalUint32(env, args[1], "parallel", parallel);
         config.context_length = context_length;
         config.threads = threads;
+        config.parallel = parallel;
     }
 
     int32_t code = EngineState::Instance().LoadModel(path, config);
