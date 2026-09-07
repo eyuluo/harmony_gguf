@@ -49,16 +49,8 @@ void EngineState::ReleaseSlot(llama_seq_id seq_id) {
     }
 }
 
-uint64_t EngineState::BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag) {
-    int32_t seq_id = -1;
-    {
-        std::lock_guard<std::mutex> lock(slot_mutex_);
-        seq_id = AcquireSlotLocked();
-    }
-    if (seq_id < 0) {
-        return 0;
-    }
-
+uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
+                                     std::shared_ptr<std::atomic_bool> & out_stop_flag) {
     auto flag = std::make_shared<std::atomic_bool>(false);
     uint64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
 
@@ -74,6 +66,18 @@ uint64_t EngineState::BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<s
     out_seq_id = static_cast<llama_seq_id>(seq_id);
     out_stop_flag = flag;
     return id;
+}
+
+uint64_t EngineState::BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag) {
+    int32_t seq_id = -1;
+    {
+        std::lock_guard<std::mutex> lock(slot_mutex_);
+        seq_id = AcquireSlotLocked();
+    }
+    if (seq_id < 0) {
+        return 0;
+    }
+    return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
 }
 
 uint64_t EngineState::BeginGenerateBlocking(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag,
@@ -105,21 +109,7 @@ uint64_t EngineState::BeginGenerateBlocking(llama_seq_id & out_seq_id, std::shar
     }
     lock.unlock();
 
-    auto flag = std::make_shared<std::atomic_bool>(false);
-    uint64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
-
-    {
-        std::lock_guard<std::mutex> lock(sessions_mutex_);
-        sessions_[id] = flag;
-    }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        active_count_++;
-    }
-
-    out_seq_id = static_cast<llama_seq_id>(seq_id);
-    out_stop_flag = flag;
-    return id;
+    return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
 }
 
 void EngineState::EndGenerate(uint64_t id, llama_seq_id seq_id) {

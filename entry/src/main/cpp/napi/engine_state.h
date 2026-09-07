@@ -101,6 +101,9 @@ private:
 
     int32_t AcquireSlotLocked();
     void ReleaseSlot(llama_seq_id seq_id);
+    // 已分配槽位后：注册会话、递增活跃计数、写回输出参数，返回 request id
+    uint64_t CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
+                            std::shared_ptr<std::atomic_bool> & out_stop_flag);
 
     mutable std::mutex mutex_;       // 保护 model_/ctx_/slot_context_/active_count_ 生命周期
     std::condition_variable gen_cv_; // 等待所有生成结束
