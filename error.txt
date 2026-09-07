@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 Device info:emulator
 Build info:emulator 6.1.0.115(SP11DEVC00E47R1P3)
@@ -6794,3 +6795,5 @@ HiLog:
 09-04 11:01:37.680 16152 16152 I C03919/AceInputTracking: [(100000:100000:scope)] Consumed id:3778, last id:3776
 09-04 11:01:37.681 16152 16152 I C04213/InputKeyFlow: ConsumePointerEventInner: InputId:3778,wid:90,pointId:0,srcType:1,rect:[515,281,2090,1394],notify:1
 
+=======
+>>>>>>> cpp
