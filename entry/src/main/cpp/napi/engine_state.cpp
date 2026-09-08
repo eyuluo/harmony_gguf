@@ -21,8 +21,13 @@ EngineState & EngineState::Instance() {
     return instance;
 }
 
-int32_t EngineState::AcquireSlotLocked() {
-    for (size_t i = 0; i < slot_used_.size(); i++) {
+int32_t EngineState::AcquireSlotLocked(SlotPool pool) {
+    if (n_slots_per_pool_ == 0 || slot_used_.empty()) {
+        return -1;
+    }
+    const size_t begin = (pool == SlotPool::Napi) ? 0 : n_slots_per_pool_;
+    const size_t end = begin + n_slots_per_pool_;
+    for (size_t i = begin; i < end && i < slot_used_.size(); i++) {
         if (!slot_used_[i]) {
             slot_used_[i] = true;
             return static_cast<int32_t>(i);
@@ -68,11 +73,12 @@ uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
     return id;
 }
 
-uint64_t EngineState::BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag) {
+uint64_t EngineState::BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
+                                    std::shared_ptr<std::atomic_bool> & out_stop_flag) {
     int32_t seq_id = -1;
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
-        seq_id = AcquireSlotLocked();
+        seq_id = AcquireSlotLocked(pool);
     }
     if (seq_id < 0) {
         return 0;
@@ -80,11 +86,12 @@ uint64_t EngineState::BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<s
     return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
 }
 
-uint64_t EngineState::BeginGenerateBlocking(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag,
+uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
+                                            std::shared_ptr<std::atomic_bool> & out_stop_flag,
                                             const std::function<bool()> & external_stop) {
     std::unique_lock<std::mutex> lock(slot_mutex_);
-    slot_cv_.wait(lock, [this, &external_stop]() {
-        if (slot_used_.empty()) {
+    slot_cv_.wait(lock, [this, pool, &external_stop]() {
+        if (slot_used_.empty() || n_slots_per_pool_ == 0) {
             return true; // 模型未加载，无法服务
         }
         if (external_stop()) {
@@ -93,17 +100,20 @@ uint64_t EngineState::BeginGenerateBlocking(llama_seq_id & out_seq_id, std::shar
         if (stop_all_.load(std::memory_order_relaxed)) {
             return true;
         }
-        for (size_t i = 0; i < slot_used_.size(); i++) {
+        const size_t begin = (pool == SlotPool::Napi) ? 0 : n_slots_per_pool_;
+        const size_t end = begin + n_slots_per_pool_;
+        for (size_t i = begin; i < end && i < slot_used_.size(); i++) {
             if (!slot_used_[i]) {
                 return true;
             }
         }
         return false;
     });
-    if (slot_used_.empty() || external_stop() || stop_all_.load(std::memory_order_relaxed)) {
+    if (slot_used_.empty() || n_slots_per_pool_ == 0 || external_stop() ||
+        stop_all_.load(std::memory_order_relaxed)) {
         return 0;
     }
-    int32_t seq_id = AcquireSlotLocked();
+    int32_t seq_id = AcquireSlotLocked(pool);
     if (seq_id < 0) {
         return 0;
     }
@@ -168,6 +178,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
         slot_used_.clear();
+        n_slots_per_pool_ = 0;
     }
     {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
@@ -195,6 +206,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         return error_code_value(ErrorCode::ModelLoadFailed);
     }
 
+    // parallel 为每个槽位池（NAPI / Serve）的槽位数，总序列数 = 2 * parallel
     const uint32_t parallel = config.parallel > 0 ? config.parallel : 1;
     uint32_t n_ctx = config.context_length;
     if (n_ctx == 0) {
@@ -202,8 +214,8 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     }
 
     llama_context_params ctx_params = llama_context_default_params();
-    ctx_params.n_ctx = n_ctx * parallel;
-    ctx_params.n_seq_max = parallel;
+    ctx_params.n_ctx = n_ctx * parallel * 2;
+    ctx_params.n_seq_max = parallel * 2;
     if (config.threads > 0) {
         ctx_params.n_threads = config.threads;
         ctx_params.n_threads_batch = config.threads;
@@ -228,12 +240,14 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
-        slot_used_.assign(parallel, false);
+        n_slots_per_pool_ = parallel;
+        slot_used_.assign(static_cast<size_t>(parallel) * 2, false);
     }
 
     ClearStopAll();
 
-    fprintf(stderr, "[Harmony-GGUF] model loaded successfully (parallel=%u, slot_ctx=%u)\n", parallel, n_ctx);
+    fprintf(stderr, "[Harmony-GGUF] model loaded successfully (parallel=%u per pool, total_seq=%u, slot_ctx=%u)\n",
+            parallel, parallel * 2, n_ctx);
 
     return error_code_value(ErrorCode::Ok);
 }
@@ -258,6 +272,7 @@ void EngineState::UnloadModel() {
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
         slot_used_.clear();
+        n_slots_per_pool_ = 0;
     }
     {
         std::lock_guard<std::mutex> lock(sessions_mutex_);

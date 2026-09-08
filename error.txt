@@ -1,4 +1,1 @@
-09-07 16:13:31.302   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
-09-07 16:13:34.301   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
-09-07 16:13:37.300   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
-09-07 16:13:40.300   3282-4244     C02d06/XCollie                                      E     Failed to open file: /sys/power/last_sr
+

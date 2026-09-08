@@ -92,7 +92,7 @@ private:
 
 // 阻塞获取一个空闲槽位，失败返回 false（服务停止或模型未加载）
 bool AcquireSlot(llama_seq_id & seq_id, std::shared_ptr<std::atomic_bool> & stop_flag, uint64_t & id) {
-    id = EngineState::Instance().BeginGenerateBlocking(seq_id, stop_flag,
+    id = EngineState::Instance().BeginGenerateBlocking(SlotPool::Serve, seq_id, stop_flag,
                                                        []() { return !HttpServer::Instance().IsRunning(); });
     return id != 0;
 }

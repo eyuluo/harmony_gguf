@@ -148,7 +148,7 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     // 分配并发槽位（非阻塞，槽位满则报错）
     llama_seq_id seq_id = -1;
     std::shared_ptr<std::atomic_bool> stop_flag;
-    uint64_t request_id = EngineState::Instance().BeginGenerate(seq_id, stop_flag);
+    uint64_t request_id = EngineState::Instance().BeginGenerate(SlotPool::Napi, seq_id, stop_flag);
     if (request_id == 0) {
         napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidState), "no available generation slot");
         return nullptr;

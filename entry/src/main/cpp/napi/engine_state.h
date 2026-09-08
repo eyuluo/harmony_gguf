@@ -13,11 +13,17 @@
 
 #include "llama.h"
 
+// 槽位池来源：NAPI 直接调用与 Serve HTTP 服务各自独立池，互不抢占
+enum class SlotPool : uint8_t {
+    Napi = 0,  // NAPI generate 直接调用
+    Serve = 1, // HTTP 服务（/v1/completions、/v1/chat/completions）
+};
+
 // 加载模型时的配置（对应 NAPI loadModel 的加载参数）
 struct LoadConfig {
     uint32_t context_length = 0; // 0 = 使用模型默认
     int32_t  threads = 0;        // 0 = 使用默认线程数
-    uint32_t parallel = 2;       // 并发槽位数（同时进行的生成任务数）
+    uint32_t parallel = 2;       // 每个槽位池的槽位数（NAPI 与 Serve 各 parallel 个）
 };
 
 // 引擎全局状态：单模型实例 + 多槽位并发。
@@ -63,12 +69,14 @@ public:
 
     // ---- 生成会话（槽位）管理 ----
 
-    // 非阻塞分配一个槽位：返回 request id（>0），无空闲槽位返回 0。
+    // 非阻塞从指定槽位池分配一个槽位：返回 request id（>0），该池无空闲槽位返回 0。
     // 成功时同时写入 seq_id 与 per-request 停止标志。
-    uint64_t BeginGenerate(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag);
+    uint64_t BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
+                           std::shared_ptr<std::atomic_bool> & out_stop_flag);
 
-    // 阻塞分配一个槽位：等待空闲槽位，external_stop 或全局停止时返回 0。
-    uint64_t BeginGenerateBlocking(llama_seq_id & out_seq_id, std::shared_ptr<std::atomic_bool> & out_stop_flag,
+    // 阻塞从指定槽位池分配一个槽位：等待该池空闲槽位，external_stop 或全局停止时返回 0。
+    uint64_t BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
+                                   std::shared_ptr<std::atomic_bool> & out_stop_flag,
                                    const std::function<bool()> & external_stop);
 
     // 结束会话：释放槽位、注销停止标志、清除该序列 KV cache。
@@ -99,7 +107,7 @@ public:
 private:
     EngineState() = default;
 
-    int32_t AcquireSlotLocked();
+    int32_t AcquireSlotLocked(SlotPool pool);
     void ReleaseSlot(llama_seq_id seq_id);
     // 已分配槽位后：注册会话、递增活跃计数、写回输出参数，返回 request id
     uint64_t CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
@@ -120,7 +128,8 @@ private:
 
     std::mutex slot_mutex_;
     std::condition_variable slot_cv_;
-    std::vector<bool> slot_used_;
+    std::vector<bool> slot_used_;      // 全局槽位占用表：Napi 池 [0, n_slots_per_pool_)，Serve 池 [n_slots_per_pool_, 2*n_slots_per_pool_)
+    size_t n_slots_per_pool_ = 0;      // 每个池的槽位数（未加载时为 0）
 
     std::mutex sessions_mutex_;
     std::unordered_map<uint64_t, std::shared_ptr<std::atomic_bool>> sessions_;
