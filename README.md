@@ -54,6 +54,8 @@ Harmony_gguf/
 
 使用 DevEco Studio 打开工程根目录，执行 `Build → Build Hap(s)/App(s)`。
 
+构建只会生成 HAP，不会自动显示应用界面。需要查看和使用 UI 时，请启动模拟器、选择 `entry` 模块并点击 DevEco Studio 顶部的 Run。完整的新成员操作流程见 [UI 运行与使用说明](docs/RUN-AND-USE.md)。
+
 命令行构建（需已安装 hvigor 命令）：
 
 ```bash
@@ -72,3 +74,4 @@ hvigorw assembleHap --mode module -p product=default
 | [docs/PRD.md](docs/PRD.md) | 产品需求文档 |
 | [docs/MVP.md](docs/MVP.md) | 功能范围与优先级 |
 | [docs/TDD.md](docs/TDD.md) | 技术设计（架构、NAPI 接口、数据流、线程模型） |
+| [docs/RUN-AND-USE.md](docs/RUN-AND-USE.md) | UI 构建、模拟器运行、模型导入与常见问题 |
