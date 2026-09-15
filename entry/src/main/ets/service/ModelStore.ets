@@ -115,6 +115,20 @@ export class ModelStore {
     }
   }
 
+  async removeModel(path: string): Promise<void> {
+    if (this.prefs === null) {
+      throw new Error('ModelStore 尚未初始化');
+    }
+    const models = this.getModels();
+    const remaining: StoredModelInfo[] = [];
+    for (const model of models) {
+      if (model.path !== path) {
+        remaining.push(model);
+      }
+    }
+    await this.saveModels(remaining);
+  }
+
   private async saveModels(models: StoredModelInfo[]): Promise<void> {
     if (this.prefs === null) {
       throw new Error('ModelStore 尚未初始化');
