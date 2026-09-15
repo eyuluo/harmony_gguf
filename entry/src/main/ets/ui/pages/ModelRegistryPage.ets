@@ -3,6 +3,7 @@ import { StoredModelInfo } from '../../service/ModelStore';
 import { ModelService } from '../../service/ModelService';
 import { InferenceService } from '../../service/InferenceService';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { formatSize } from '../common/Utils';
 
 @Component
 export struct ModelRegistryPage {
@@ -90,13 +91,6 @@ export struct ModelRegistryPage {
       .margin({ right: 6, bottom: 6 })
   }
 
-  private formatModelSize(bytes: number): string {
-    if (bytes >= 1024 * 1024 * 1024) {
-      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   @Builder
   modelCard(item: ModelItem) {
     Column() {
@@ -121,7 +115,7 @@ export struct ModelRegistryPage {
           this.tag(`架构：${item.info.architecture}`)
           this.tag(`参数量：${item.info.parameters}`)
           this.tag(`量化：${item.info.quantization}`)
-          this.tag(`模型大小：${this.formatModelSize(item.info.fileSize)}`)
+          this.tag(`模型大小：${formatSize(item.info.fileSize)}`)
           this.tag('输入类型：文本')
         }
         .width('100%')

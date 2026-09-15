@@ -1,5 +1,7 @@
 import { AppState, ServeSource } from '../../service/AppState';
 import { ServeService } from '../../service/ServeService';
+import { EmptyState, LoadingState, FailedState } from '../components/StateViews';
+import { formatSize, configValue } from '../common/Utils';
 
 @Component
 export struct ServePage {
@@ -105,11 +107,17 @@ export struct ServePage {
   homeArea() {
     Column() {
       if (this.appState.loading) {
-        this.loadingState()
+        LoadingState({ subtitle: this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候' })
       } else if (this.appState.loadFailed && this.appState.modelId === 0) {
-        this.failedState()
+        FailedState({ onAction: () => this.onOpenModels() })
       } else if (this.appState.modelId === 0) {
-        this.emptyState()
+        EmptyState({
+          icon: $r('app.media.ic_server'),
+          title: '先选择一个本地模型',
+          subtitle: '加载模型后即可启动本地 API 服务',
+          buttonText: '选择模型',
+          onAction: () => this.onOpenModels()
+        })
       } else {
         Scroll() {
           Column() {
@@ -209,11 +217,11 @@ export struct ServePage {
         this.paramRow('量化等级', this.appState.modelInfo.quantization)
         this.paramRow('训练上下文', String(this.appState.modelInfo.contextLength))
         this.paramRow('分词器', this.appState.modelInfo.tokenizer)
-        this.paramRow('文件大小', this.formatSize(this.appState.modelInfo.fileSize))
+        this.paramRow('文件大小', formatSize(this.appState.modelInfo.fileSize))
       }
-      this.paramRow('加载 Context', this.configValue(this.appState.loadedConfig?.contextLength ?? 0))
-      this.paramRow('加载 Threads', this.configValue(this.appState.loadedConfig?.threads ?? 0))
-      this.paramRow('加载 Parallel', this.configValue(this.appState.loadedConfig?.parallel ?? 2))
+      this.paramRow('加载 Context', configValue(this.appState.loadedConfig?.contextLength ?? 0))
+      this.paramRow('加载 Threads', configValue(this.appState.loadedConfig?.threads ?? 0))
+      this.paramRow('加载 Parallel', configValue(this.appState.loadedConfig?.parallel ?? 2))
       this.paramRow('Max tokens', String(this.appState.maxTokens))
       this.paramRow('Temperature', String(this.appState.temperature))
       this.paramRow('Top-K', String(this.appState.topK))
@@ -332,63 +340,6 @@ export struct ServePage {
     .margin({ bottom: 8 })
   }
 
-  @Builder
-  emptyState() {
-    Column() {
-      Image($r('app.media.ic_server'))
-        .width(64)
-        .height(64)
-        .fillColor('#7B61FF')
-        .margin({ bottom: 22 })
-      Text('先选择一个本地模型')
-        .fontSize(22)
-        .fontColor('#FFFFFF')
-      Text('加载模型后即可启动本地 API 服务')
-        .fontSize(14)
-        .fontColor('#6C6C6C')
-        .margin({ top: 8, bottom: 20 })
-      Button('选择模型')
-        .onClick(() => this.onOpenModels())
-        .backgroundColor('#6C5CE7')
-        .fontColor('#FFFFFF')
-        .borderRadius(12)
-    }
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  @Builder
-  loadingState() {
-    Column() {
-      Text('正在加载模型')
-        .fontSize(18)
-        .fontColor('#FFFFFF')
-      Text(this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候')
-        .fontSize(14)
-        .fontColor('#6C6C6C')
-        .margin({ top: 8 })
-    }
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  @Builder
-  failedState() {
-    Column() {
-      Text('加载失败，请重新加载')
-        .fontSize(18)
-        .fontColor('#E58C8C')
-      Button('选择模型')
-        .onClick(() => this.onOpenModels())
-        .margin({ top: 16 })
-        .backgroundColor('#6C5CE7')
-        .fontColor('#FFFFFF')
-        .borderRadius(12)
-    }
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
-  }
-
   private currentSource(): ServeSource | null {
     for (const src of this.appState.serveSources) {
       if (src.id === this.appState.activeSourceId) {
@@ -396,13 +347,5 @@ export struct ServePage {
       }
     }
     return null;
-  }
-
-  private formatSize(bytes: number): string {
-    return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  private configValue(value: number): string {
-    return value <= 0 ? '默认' : String(value);
   }
 }

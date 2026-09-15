@@ -3,6 +3,7 @@ import { InferenceService } from '../../service/InferenceService';
 import { GenerateStats } from 'libentry.so';
 import { picker } from '@kit.CoreFileKit';
 import { SessionList } from '../components/SessionList';
+import { EmptyState, LoadingState, FailedState } from '../components/StateViews';
 
 @Component
 export struct ChatPage {
@@ -47,11 +48,17 @@ export struct ChatPage {
     Column() {
       this.detailTopBar()
       if (this.appState.loading) {
-        this.loadingState()
+        LoadingState({ subtitle: this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候' })
       } else if (this.appState.loadFailed && this.appState.modelId === 0) {
-        this.failedState()
+        FailedState({ onAction: () => this.onOpenModels() })
       } else if (this.appState.modelId === 0) {
-        this.emptyState()
+        EmptyState({
+          icon: $r('app.media.ic_model'),
+          title: '先选择一个本地模型',
+          subtitle: '导入 GGUF 文件后，就可以开始离线对话',
+          buttonText: '选择模型',
+          onAction: () => this.onOpenModels()
+        })
       } else if (this.currentSession() !== null) {
         this.messagesArea()
       } else {
@@ -95,63 +102,6 @@ export struct ChatPage {
     .width('100%')
     .padding({ left: 20, right: 20, top: 14, bottom: 12 })
     .alignItems(VerticalAlign.Center)
-  }
-
-  @Builder
-  emptyState() {
-    Column() {
-      Image($r('app.media.ic_model'))
-        .width(64)
-        .height(64)
-        .fillColor('#7B61FF')
-        .margin({ bottom: 22 })
-      Text('先选择一个本地模型')
-        .fontSize(22)
-        .fontColor('#FFFFFF')
-      Text('导入 GGUF 文件后，就可以开始离线对话')
-        .fontSize(14)
-        .fontColor('#6C6C6C')
-        .margin({ top: 8, bottom: 20 })
-      Button('选择模型')
-        .onClick(() => this.onOpenModels())
-        .backgroundColor('#6C5CE7')
-        .fontColor('#FFFFFF')
-        .borderRadius(12)
-    }
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  @Builder
-  loadingState() {
-    Column() {
-      Text('正在加载模型')
-        .fontSize(18)
-        .fontColor('#FFFFFF')
-      Text(this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候')
-        .fontSize(14)
-        .fontColor('#6C6C6C')
-        .margin({ top: 8 })
-    }
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  @Builder
-  failedState() {
-    Column() {
-      Text('加载失败，请重新加载')
-        .fontSize(18)
-        .fontColor('#E58C8C')
-      Button('选择模型')
-        .onClick(() => this.onOpenModels())
-        .margin({ top: 16 })
-        .backgroundColor('#6C5CE7')
-        .fontColor('#FFFFFF')
-        .borderRadius(12)
-    }
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center)
   }
 
   @Builder
