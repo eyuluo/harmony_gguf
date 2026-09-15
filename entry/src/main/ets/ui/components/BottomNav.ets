@@ -1,10 +1,13 @@
+import { AppState, SESSION_RUNNING } from '../../service/AppState';
+
 @Component
 export struct BottomNav {
   @Link activeTab: number;
+  @ObjectLink appState: AppState;
 
   build() {
     Row() {
-      this.navItem($r('app.media.ic_chat'), '对话', 0)
+      this.navItem($r('app.media.ic_chat'), this.chatLabel(), 0)
       this.navItem($r('app.media.ic_model'), '模型', 1)
       this.navItem($r('app.media.ic_server'), '服务', 2)
     }
@@ -13,6 +16,16 @@ export struct BottomNav {
     .backgroundColor('#18191D')
     .borderWidth({ top: 1 })
     .borderColor('#2C2D33')
+  }
+
+  private chatLabel(): string {
+    let count = 0;
+    for (const s of this.appState.sessions) {
+      if (s.status === SESSION_RUNNING) {
+        count += 1;
+      }
+    }
+    return count > 0 ? `对话 (${count})` : '对话';
   }
 
   @Builder
@@ -34,6 +47,12 @@ export struct BottomNav {
     .layoutWeight(1)
     .height('100%')
     .justifyContent(FlexAlign.Center)
-    .onClick(() => { this.activeTab = index })
+    .onClick(() => {
+      if (index === 0 && this.activeTab === 0 && !this.appState.showSessionList) {
+        this.appState.showSessionList = true;
+      } else {
+        this.activeTab = index;
+      }
+    })
   }
 }

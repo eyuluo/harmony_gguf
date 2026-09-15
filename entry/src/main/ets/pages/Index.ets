@@ -10,7 +10,6 @@ import { HeaderBar } from '../ui/components/HeaderBar';
 import { BottomNav } from '../ui/components/BottomNav';
 import { SideNav } from '../ui/components/SideNav';
 import { ParamConfigDialog } from '../ui/components/ParamConfigDialog';
-import { ParamDetailDialog } from '../ui/components/ParamDetailDialog';
 import { ChatPage } from '../ui/pages/ChatPage';
 import { ModelRegistryPage } from '../ui/pages/ModelRegistryPage';
 import { ServePage } from '../ui/pages/ServePage';
@@ -65,12 +64,6 @@ struct Index {
           onConfirm: () => this.confirmLoad()
         })
       }
-      if (this.appState.showParamDetail) {
-        ParamDetailDialog({
-          appState: this.appState,
-          onClose: () => { this.appState.showParamDetail = false; }
-        })
-      }
     }
     .width('100%')
     .height('100%')
@@ -85,7 +78,7 @@ struct Index {
     Column() {
       HeaderBar({ appState: this.appState })
       this.pageContent()
-      BottomNav({ activeTab: $activeTab })
+      BottomNav({ activeTab: $activeTab, appState: this.appState })
     }
     .width('100%')
     .height('100%')
@@ -94,13 +87,14 @@ struct Index {
   @Builder
   pcLayout() {
     Row() {
-      SideNav({ activeTab: $activeTab })
       Column() {
         HeaderBar({ appState: this.appState })
         this.pageContent()
       }
       .layoutWeight(1)
       .height('100%')
+
+      SideNav({ activeTab: $activeTab, appState: this.appState })
     }
     .width('100%')
     .height('100%')
@@ -111,8 +105,8 @@ struct Index {
     if (this.activeTab === 0) {
       ChatPage({
         appState: this.appState,
-        onOpenModels: () => this.openModels(0),
-        onOpenParamDetail: () => this.openParamDetail()
+        isWide: this.isWide,
+        onOpenModels: () => this.openModels(0)
       })
     } else if (this.activeTab === 1) {
       ModelRegistryPage({
@@ -122,8 +116,8 @@ struct Index {
     } else {
       ServePage({
         appState: this.appState,
-        onOpenModels: () => this.openModels(2),
-        onOpenParamDetail: () => this.openParamDetail()
+        isWide: this.isWide,
+        onOpenModels: () => this.openModels(2)
       })
     }
   }
@@ -131,10 +125,6 @@ struct Index {
   openModels(fromTab: number): void {
     this.appState.returnTab = fromTab;
     this.activeTab = 1;
-  }
-
-  openParamDetail(): void {
-    this.appState.showParamDetail = true;
   }
 
   openParamConfig(model: StoredModelInfo): void {

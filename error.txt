@@ -1,29 +1,33 @@
+ hvigor UP-TO-DATE :entry:default@CacheNativeLibs...  
+> hvigor ERROR: Failed :entry:default@CompileArkTS... 
+> hvigor WARN: 
+1 WARN: ArkTS:WARN: For details about ArkTS syntax errors, see FAQs
+> hvigor ERROR: ArkTS Compiler Error
+1 ERROR: 10605999 ArkTS Compiler Error
+Error Message: Argument of type 'GenerateStats | null' is not assignable to parameter of type 'GenerateStats'.
+  Type 'null' is not assignable to type 'GenerateStats'. At File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/pages/ChatPage.ets:90:29
 
-hvigor WARN: WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:32:62
- The 'regular' property 'contextLength' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:33:55
- The 'regular' property 'threads' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:34:56
- The 'regular' property 'parallel' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:41:58
- The 'regular' property 'maxTokens' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:42:59
- The 'regular' property 'temperature' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:44:53
- The 'regular' property 'topK' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:45:53
- The 'regular' property 'topP' cannot be assigned to the '@Link' property 'value'.
-WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/components/ParamConfigDialog.ets:46:62
- The 'regular' property 'repeatPenalty' cannot be assigned to the '@Link' property 'value'.
 
-> hvigor Finished :entry:default@CompileArkTS... after 3 s 705 ms 
-> hvigor UP-TO-DATE :entry:default@GeneratePkgModuleJson...  
-> hvigor Finished :entry:default@ProcessCompiledResources... after 1 ms 
-> hvigor Finished :entry:default@PackageHap... after 446 ms 
-> hvigor Finished :entry:default@PackingCheck... after 4 ms 
-> hvigor WARN: Will skip sign 'hos_hap'. No signingConfigs profile is configured in current project.
-             If needed, configure the signingConfigs in D:\Project\Harmony_gguf\build-profile.json5.
-> hvigor Finished :entry:default@SignHap... after 2 ms 
-> hvigor Finished :entry:default@CollectDebugSymbol... after 1 ms 
-> hvigor Finished :entry:assembleHap... after 1 ms 
-> hvigor BUILD SUCCESSFUL in 16 s 632 ms 
+COMPILE RESULT:FAIL {ERROR:2 WARN:1}
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --debug option to get more log output.
+
+
+FAILURE: Build completed with 1 failure.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task 'default@CompileArkTS'.
+  > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --debug option to get more log output.
+
+================================================================================
+> hvigor ERROR: BUILD FAILED in 2 s 662 ms 
+
+25 tasks in total: 10 executed, 15 up-to-date

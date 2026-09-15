@@ -1,6 +1,9 @@
+import { AppState, SESSION_RUNNING } from '../../service/AppState';
+
 @Component
 export struct SideNav {
   @Link activeTab: number;
+  @ObjectLink appState: AppState;
 
   build() {
     Column() {
@@ -18,7 +21,7 @@ export struct SideNav {
       .padding({ left: 20, top: 24, bottom: 28 })
       .alignItems(VerticalAlign.Center)
 
-      this.navItem($r('app.media.ic_chat'), '对话', 0)
+      this.navItem($r('app.media.ic_chat'), this.chatLabel(), 0)
       this.navItem($r('app.media.ic_model'), '模型', 1)
       this.navItem($r('app.media.ic_server'), '服务', 2)
       Blank()
@@ -26,8 +29,18 @@ export struct SideNav {
     .width(200)
     .height('100%')
     .backgroundColor('#18191D')
-    .borderWidth({ right: 1 })
+    .borderWidth({ left: 1 })
     .borderColor('#2C2D33')
+  }
+
+  private chatLabel(): string {
+    let count = 0;
+    for (const s of this.appState.sessions) {
+      if (s.status === SESSION_RUNNING) {
+        count += 1;
+      }
+    }
+    return count > 0 ? `对话 (${count})` : '对话';
   }
 
   @Builder

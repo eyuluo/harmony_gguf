@@ -1,15 +1,19 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { http } from '@kit.NetworkKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import testNapi from 'libentry.so';
 import { ServerInfo } from 'libentry.so';
 import { AppState } from './AppState';
 
 const DOMAIN = 0x0000;
 const TAG = 'ServeService';
+const BASE_URL = 'http://127.0.0.1:8080';
 
 export class ServeService {
   private static instance: ServeService | null = null;
   private state: AppState | null = null;
   private timerId: number = -1;
+  private httpRequest: http.HttpRequest = http.createHttp();
 
   static getInstance(): ServeService {
     if (ServeService.instance === null) {
@@ -61,5 +65,24 @@ export class ServeService {
       clearInterval(this.timerId);
       this.timerId = -1;
     }
+  }
+
+  checkHealth(): void {
+    const state = this.state!;
+    if (!state.serverRunning) {
+      state.healthStatus = '服务未运行';
+      return;
+    }
+    this.httpRequest.request(`${BASE_URL}/health`, {
+      method: http.RequestMethod.GET,
+      connectTimeout: 3000,
+      readTimeout: 5000
+    }, (err: BusinessError, data: http.HttpResponse) => {
+      if (err) {
+        state.healthStatus = `状态异常：${err.message}`;
+      } else {
+        state.healthStatus = `状态正常 (HTTP ${data.responseCode})`;
+      }
+    });
   }
 }

@@ -51,65 +51,81 @@ export struct ModelRegistryPage {
         })
       }
     }
+    .layoutWeight(1)
     .width('100%')
-    .height('100%')
   }
 
   @Builder
   topActions() {
-    Column() {
-      Row() {
-        Blank()
-        Button('删除不存在模型')
-          .onClick(() => { this.showDeleteMissing = true; })
-          .backgroundColor('#2C2D33')
-          .fontColor('#E58C8C')
-          .fontSize(12)
-          .borderRadius(10)
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 10 })
-      Row() {
-        Blank()
-        Button(this.appState.importing ? '导入中...' : '+  导入模型')
-          .onClick(() => { this.modelService.importModel(); })
-          .backgroundColor('#6C5CE7')
-          .fontColor('#FFFFFF')
-          .borderRadius(12)
-        Blank()
-      }
-      .width('100%')
-      .padding({ left: 20, right: 20, top: 8, bottom: 12 })
+    Row() {
+      Button(this.appState.importing ? '导入中...' : '+  导入模型')
+        .onClick(() => { this.modelService.importModel(); })
+        .layoutWeight(1)
+        .height(48)
+        .fontSize(16)
+        .backgroundColor('#6C5CE7')
+        .fontColor('#FFFFFF')
+        .borderRadius(12)
+      Button('删除不存在模型')
+        .onClick(() => { this.showDeleteMissing = true; })
+        .margin({ left: 10 })
+        .height(48)
+        .fontSize(13)
+        .backgroundColor('#2C2D33')
+        .fontColor('#E58C8C')
+        .borderRadius(12)
     }
+    .width('100%')
+    .padding({ left: 20, right: 20, top: 14, bottom: 12 })
   }
 
   @Builder
   tag(value: string) {
     Text(value)
-      .fontSize(11)
+      .fontSize(12)
       .fontColor('#6C6C6C')
       .backgroundColor('#25262B')
       .borderRadius(8)
       .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-      .margin({ right: 6 })
+      .margin({ right: 6, bottom: 6 })
+  }
+
+  private formatModelSize(bytes: number): string {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   @Builder
   modelCard(item: ModelItem) {
     Column() {
-      Text(item.info.name).fontSize(18).fontColor('#FFFFFF')
-      Text(item.info.path).fontSize(11).fontColor('#5F6068').margin({ top: 4 })
-      if (item.exists) {
-        Row() {
-          this.tag(item.info.architecture)
-          this.tag(item.info.quantization)
-          this.tag(item.info.parameters)
-        }
-        .margin({ top: 12, bottom: 6 })
-        Text(`上下文 ${item.info.contextLength} · 输入类型 ${item.info.tokenizer}`)
+      Row() {
+        Text(item.info.name)
+          .fontSize(19)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(`位置：${item.info.path}`)
           .fontSize(12)
           .fontColor('#6C6C6C')
-          .margin({ bottom: 14 })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: '45%' })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      if (item.exists) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          this.tag(`架构：${item.info.architecture}`)
+          this.tag(`参数量：${item.info.parameters}`)
+          this.tag(`量化：${item.info.quantization}`)
+          this.tag(`模型大小：${this.formatModelSize(item.info.fileSize)}`)
+          this.tag('输入类型：文本')
+        }
+        .width('100%')
+        .margin({ top: 12, bottom: 6 })
         Row() {
           if (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0) {
             Button('停止模型')
@@ -134,7 +150,7 @@ export struct ModelRegistryPage {
         }
       } else {
         Text('未在该位置找到该模型')
-          .fontSize(14)
+          .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor('#E05858')
           .margin({ top: 12, bottom: 14 })
