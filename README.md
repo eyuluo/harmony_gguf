@@ -5,7 +5,7 @@
 ## 特性
 
 - **纯本地离线**：GGUF 模型导入、解析、加载、推理全程本地，除用户主动下载模型外无任何网络请求。
-- **流式对话**：逐 token 流式输出，打字机效果，支持多轮上下文、停止/复制/重新生成。
+- **流式对话**：逐 token 流式输出，打字机效果，支持多轮上下文和停止/复制/重新生成。
 - **模型管理**：导入 `.gguf` 文件，解析并展示元数据（架构、参数量、量化等级、上下文长度、tokenizer）。
 - **参数可调**：temperature、top-k、top-p、repeat penalty、context length、max tokens、线程数。
 - **本地 API 服务（Serve，P1）**：OpenAI 兼容接口（`/v1/chat/completions`、`/v1/completions`、`/v1/models`），支持 SSE 流式、局域网访问与可选鉴权。
@@ -69,9 +69,9 @@ hvigorw assembleHap --mode module -p product=default
 
 ## 文档
 
-| 文档                         | 说明 |
-|----------------------------|------|
-| [docs/PRD.md](docs/PRD.md) | 产品需求文档 |
-| [docs/MVP.md](docs/MVP.md) | 功能范围与优先级 |
-| [docs/TDD.md](docs/TDD.md) | 技术设计（架构、NAPI 接口、数据流、线程模型） |
+| 文档                                         | 说明 |
+|--------------------------------------------|------|
+| [docs/PRD.md](docs/PRD.md)                 | 产品需求文档 |
+| [docs/mvp.md](docs/mvp.md)                 | 功能范围与优先级 |
+| [docs/TDD.md](docs/TDD.md)                 | 技术设计（架构、NAPI 接口、数据流、线程模型） |
 | [docs/RUN-AND-USE.md](docs/RUN-AND-USE.md) | UI 构建、模拟器运行、模型导入与常见问题 |

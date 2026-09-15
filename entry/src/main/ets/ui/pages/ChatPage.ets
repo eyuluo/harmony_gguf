@@ -64,9 +64,7 @@ export struct ChatPage {
       } else {
         this.noSessionState()
       }
-      if (this.appState.modelId > 0 && (this.isWide || this.currentSession() !== null)) {
-        this.inputBar()
-      }
+      this.inputBar()
     }
     .layoutWeight(1)
     .width('100%')
@@ -77,9 +75,9 @@ export struct ChatPage {
   detailTopBar() {
     Row() {
       if (!this.isWide) {
-        Text('← 返回')
-          .fontSize(14)
-          .fontColor('#B9B1FF')
+        Text('对话列表')
+          .fontSize(13)
+          .fontColor('#A9A2E8')
           .onClick(() => { this.appState.showSessionList = true; })
       }
       Blank()
@@ -164,43 +162,38 @@ export struct ChatPage {
 
   @Builder
   messageBubble(message: SessionMessage) {
-    if (message.role === 'user') {
-      Row() {
-        Blank()
-        Text(message.content)
-          .fontSize(15)
-          .fontColor('#FFFFFF')
-          .backgroundColor('#6C5CE7')
-          .borderRadius({ topLeft: 16, topRight: 16, bottomLeft: 16, bottomRight: 4 })
-          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-          .constraintSize({ maxWidth: '78%' })
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.End)
-      .margin({ bottom: 14 })
-    } else {
-      Row() {
-        if (message.content.length > 0) {
-          Text(message.content)
-            .fontSize(15)
-            .fontColor('#E6E6E6')
-            .backgroundColor('#1E1F24')
-            .borderRadius({ topLeft: 16, topRight: 16, bottomRight: 16, bottomLeft: 4 })
-            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-            .constraintSize({ maxWidth: '82%' })
-        } else {
-          Text('…')
-            .fontSize(15)
-            .fontColor('#6C6C6C')
-            .backgroundColor('#1E1F24')
-            .borderRadius(16)
-            .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    Row() {
+      Text(message.role === 'user' ? '你' : 'AI')
+        .fontSize(12)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(message.role === 'user' ? '#B9B1FF' : '#78D891')
+        .width(32)
+        .margin({ top: 3 })
+      Column() {
+        if (message.attachments.length > 0) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            ForEach(message.attachments, (uri: string) => {
+              Image(uri)
+                .width(72)
+                .height(72)
+                .borderRadius(8)
+                .margin({ right: 8, bottom: 8 })
+            }, (uri: string) => uri)
+          }
+          .width('100%')
         }
+        Text(message.content.length > 0 ? message.content : '…')
+          .fontSize(15)
+          .fontColor(message.content.length > 0 ? '#E6E6E6' : '#6C6C6C')
+          .lineHeight(22)
+          .width('100%')
       }
-      .width('100%')
-      .justifyContent(FlexAlign.Start)
-      .margin({ bottom: 14 })
+      .layoutWeight(1)
     }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    .padding({ top: 4, bottom: 4 })
+    .margin({ bottom: 14 })
   }
 
   @Builder
@@ -220,9 +213,10 @@ export struct ChatPage {
         .padding({ left: 4, bottom: 10 })
       }
       Row() {
-        TextInput({ placeholder: '输入消息...', text: this.input })
+        TextInput({ placeholder: this.appState.modelId > 0 ? '输入消息...' : '请先加载模型', text: this.input })
           .layoutWeight(1)
           .height(44)
+          .enabled(this.appState.modelId > 0 && !this.appState.loading)
           .onChange((value: string) => this.input = value)
           .onSubmit(() => this.send())
           .backgroundColor('#1E1F24')
@@ -230,22 +224,24 @@ export struct ChatPage {
           .placeholderColor('#66FFFFFF')
           .borderWidth(1)
           .borderColor('#2C2D33')
-          .borderRadius(22)
+          .borderRadius(12)
           .padding({ left: 16, right: 16 })
         Button('⊕')
-          .width(44)
+          .width(42)
           .height(44)
+          .enabled(this.appState.modelId > 0 && !this.appState.loading)
           .margin({ left: 8 })
           .onClick(() => this.selectAttachment())
           .backgroundColor('#1E1F24')
           .fontColor('#B9B1FF')
           .fontSize(20)
-          .borderRadius(22)
+          .borderRadius(12)
         Button(this.isGenerating() ? '停止' : '发送')
           .width(64)
           .height(44)
           .margin({ left: 8 })
-          .enabled(this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0)
+          .enabled(this.appState.modelId > 0 &&
+            (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0))
           .onClick(() => {
             if (this.isGenerating()) {
               this.inference.stopGeneration(this.currentSession()!.id);
@@ -253,9 +249,11 @@ export struct ChatPage {
               this.send();
             }
           })
-          .backgroundColor(this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0 ? '#6C5CE7' : '#35343F')
-          .fontColor(this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0 ? '#FFFFFF' : '#8F8D98')
-          .borderRadius(22)
+          .backgroundColor(this.appState.modelId > 0 &&
+            (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0) ? '#8A74FF' : '#35343F')
+          .fontColor(this.appState.modelId > 0 &&
+            (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0) ? '#FFFFFF' : '#8F8D98')
+          .borderRadius(12)
       }
       .width('100%')
     }
@@ -283,7 +281,7 @@ export struct ChatPage {
   }
 
   private send(): void {
-    if (this.input.trim().length === 0 && this.attachments.length === 0) {
+    if (this.appState.modelId === 0 || this.input.trim().length === 0 && this.attachments.length === 0) {
       return;
     }
     let session = this.currentSession();

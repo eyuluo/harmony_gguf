@@ -7,29 +7,17 @@ export struct SideNav {
 
   build() {
     Column() {
-      Row() {
-        Image($r('app.media.ic_ai_chip'))
-          .width(28)
-          .height(28)
-          .margin({ right: 10 })
-        Text('Harmony-GGUF')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
-      }
-      .width('100%')
-      .padding({ left: 20, top: 24, bottom: 28 })
-      .alignItems(VerticalAlign.Center)
-
+      Blank().height(24)
       this.navItem($r('app.media.ic_chat'), this.chatLabel(), 0)
       this.navItem($r('app.media.ic_model'), '模型', 1)
       this.navItem($r('app.media.ic_server'), '服务', 2)
+      this.navItem($r('app.media.ic_settings'), '设置', 3)
       Blank()
     }
-    .width(200)
+    .width(188)
     .height('100%')
     .backgroundColor('#18191D')
-    .borderWidth({ left: 1 })
+    .borderWidth({ right: 1 })
     .borderColor('#2C2D33')
   }
 

@@ -10,6 +10,7 @@ export struct BottomNav {
       this.navItem($r('app.media.ic_chat'), this.chatLabel(), 0)
       this.navItem($r('app.media.ic_model'), '模型', 1)
       this.navItem($r('app.media.ic_server'), '服务', 2)
+      this.navItem($r('app.media.ic_settings'), '设置', 3)
     }
     .width('100%')
     .height(72)
@@ -34,11 +35,11 @@ export struct BottomNav {
       Image(icon)
         .width(22)
         .height(22)
-        .fillColor(this.activeTab === index ? '#B9B1FF' : '#6C6C6C')
+        .fillColor(this.activeTab === index ? '#B9B1FF' : '#77777F')
       Text(label)
         .fontSize(14)
         .fontWeight(this.activeTab === index ? FontWeight.Medium : FontWeight.Normal)
-        .fontColor(this.activeTab === index ? '#B9B1FF' : '#A0A0A0')
+        .fontColor(this.activeTab === index ? '#D7D3FF' : '#A0A0A0')
         .margin({ top: 4 })
       if (this.activeTab === index) {
         Text('●').fontSize(6).fontColor('#7B61FF').margin({ top: 3 })

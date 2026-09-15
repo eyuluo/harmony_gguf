@@ -58,7 +58,7 @@ export class AppState {
 
   sessions: Session[] = [];
   activeSessionId: number = 0;
-  showSessionList: boolean = true;
+  showSessionList: boolean = false;
   nextSessionId: number = 1;
 
   serverRunning: boolean = false;

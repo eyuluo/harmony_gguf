@@ -106,6 +106,7 @@ export struct ServePage {
   @Builder
   homeArea() {
     Column() {
+      this.pageHeading()
       if (this.appState.loading) {
         LoadingState({ subtitle: this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候' })
       } else if (this.appState.loadFailed && this.appState.modelId === 0) {
@@ -201,6 +202,23 @@ export struct ServePage {
     .layoutWeight(1)
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  pageHeading() {
+    Column() {
+      Text('本地服务')
+        .fontSize(24)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+      Text('OpenAI 兼容 API，默认仅监听本机')
+        .fontSize(13)
+        .fontColor('#6C6C6C')
+        .margin({ top: 6 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 20, right: 20, top: 22, bottom: 4 })
   }
 
   @Builder

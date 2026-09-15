@@ -13,6 +13,7 @@ import { ParamConfigDialog } from '../ui/components/ParamConfigDialog';
 import { ChatPage } from '../ui/pages/ChatPage';
 import { ModelRegistryPage } from '../ui/pages/ModelRegistryPage';
 import { ServePage } from '../ui/pages/ServePage';
+import { SettingsPage } from '../ui/pages/SettingsPage';
 
 const DOMAIN = 0x0000;
 const TAG = 'HarmonyGGUF';
@@ -77,7 +78,11 @@ struct Index {
   phoneLayout() {
     Column() {
       HeaderBar({ appState: this.appState })
-      this.pageContent()
+      Column() {
+        this.pageContent()
+      }
+      .layoutWeight(1)
+      .width('100%')
       BottomNav({ activeTab: $activeTab, appState: this.appState })
     }
     .width('100%')
@@ -87,14 +92,18 @@ struct Index {
   @Builder
   pcLayout() {
     Row() {
+      SideNav({ activeTab: $activeTab, appState: this.appState })
+
       Column() {
         HeaderBar({ appState: this.appState })
-        this.pageContent()
+        Column() {
+          this.pageContent()
+        }
+        .layoutWeight(1)
+        .width('100%')
       }
       .layoutWeight(1)
       .height('100%')
-
-      SideNav({ activeTab: $activeTab, appState: this.appState })
     }
     .width('100%')
     .height('100%')
@@ -113,12 +122,14 @@ struct Index {
         appState: this.appState,
         onOpenParamConfig: (model: StoredModelInfo) => this.openParamConfig(model)
       })
-    } else {
+    } else if (this.activeTab === 2) {
       ServePage({
         appState: this.appState,
         isWide: this.isWide,
         onOpenModels: () => this.openModels(2)
       })
+    } else {
+      SettingsPage({ appState: this.appState })
     }
   }
 

@@ -20,9 +20,28 @@ export struct ModelRegistryPage {
         this.topActions()
         Scroll() {
           Column() {
-            ForEach(this.appState.models, (item: ModelItem) => {
-              this.modelCard(item)
-            }, (item: ModelItem) => item.info.path)
+            if (this.appState.models.length === 0) {
+              Column() {
+                Image($r('app.media.ic_model'))
+                  .width(48)
+                  .height(48)
+                  .fillColor('#7B61FF')
+                  .margin({ bottom: 16 })
+                Text(this.appState.importing ? '正在导入模型' : '还没有导入模型')
+                  .fontSize(18)
+                  .fontColor('#FFFFFF')
+                Text(this.appState.importing ? '正在读取模型信息，请稍候' : '选择一个本地 .gguf 文件开始')
+                  .fontSize(13)
+                  .fontColor('#6C6C6C')
+                  .margin({ top: 8 })
+              }
+              .width('100%')
+              .padding({ top: 72, bottom: 32 })
+            } else {
+              ForEach(this.appState.models, (item: ModelItem) => {
+                this.modelCard(item)
+              }, (item: ModelItem) => item.info.path)
+            }
           }
           .width('100%')
           .padding({ left: 20, right: 20, top: 8, bottom: 20 })
@@ -58,26 +77,52 @@ export struct ModelRegistryPage {
 
   @Builder
   topActions() {
-    Row() {
-      Button(this.appState.importing ? '导入中...' : '+  导入模型')
-        .onClick(() => { this.modelService.importModel(); })
+    Column() {
+      Row() {
+        Column() {
+          Text('模型')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+          Text(`${this.appState.models.length} 个本地模型`)
+            .fontSize(12)
+            .fontColor('#6C6C6C')
+            .margin({ top: 4 })
+        }
         .layoutWeight(1)
-        .height(48)
-        .fontSize(16)
-        .backgroundColor('#6C5CE7')
-        .fontColor('#FFFFFF')
-        .borderRadius(12)
-      Button('删除不存在模型')
-        .onClick(() => { this.showDeleteMissing = true; })
-        .margin({ left: 10 })
-        .height(48)
-        .fontSize(13)
-        .backgroundColor('#2C2D33')
-        .fontColor('#E58C8C')
-        .borderRadius(12)
+        .alignItems(HorizontalAlign.Start)
+        Button(this.appState.importing ? '导入中...' : '+  导入 GGUF')
+          .enabled(!this.appState.importing)
+          .onClick(() => { this.modelService.importModel(); })
+          .height(42)
+          .fontSize(14)
+          .backgroundColor(this.appState.importing ? '#35343F' : '#6C5CE7')
+          .fontColor(this.appState.importing ? '#8F8D98' : '#FFFFFF')
+          .borderRadius(12)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      if (this.hasMissingModels()) {
+        Row() {
+          Text('部分模型的本地文件已不存在')
+            .fontSize(12)
+            .fontColor('#E58C8C')
+            .layoutWeight(1)
+          Button('清理失效项')
+            .onClick(() => { this.showDeleteMissing = true; })
+            .height(32)
+            .fontSize(12)
+            .backgroundColor('#25262B')
+            .fontColor('#E58C8C')
+            .borderRadius(10)
+        }
+        .width('100%')
+        .margin({ top: 12 })
+      }
     }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 14, bottom: 12 })
+    .padding({ left: 20, right: 20, top: 22, bottom: 12 })
   }
 
   @Builder
@@ -94,38 +139,47 @@ export struct ModelRegistryPage {
   @Builder
   modelCard(item: ModelItem) {
     Column() {
-      Row() {
-        Text(item.info.name)
-          .fontSize(19)
-          .fontColor('#FFFFFF')
-          .layoutWeight(1)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(`位置：${item.info.path}`)
-          .fontSize(12)
-          .fontColor('#6C6C6C')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: '45%' })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
+      Text(item.info.name)
+        .fontSize(18)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#FFFFFF')
+        .width('100%')
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
       if (item.exists) {
         Flex({ wrap: FlexWrap.Wrap }) {
-          this.tag(`架构：${item.info.architecture}`)
-          this.tag(`参数量：${item.info.parameters}`)
-          this.tag(`量化：${item.info.quantization}`)
-          this.tag(`模型大小：${formatSize(item.info.fileSize)}`)
-          this.tag('输入类型：文本')
+          this.tag(item.info.architecture)
+          this.tag(item.info.quantization)
+          this.tag(item.info.parameters)
         }
         .width('100%')
-        .margin({ top: 12, bottom: 6 })
+        .margin({ top: 12, bottom: 4 })
+        Text(`上下文 ${item.info.contextLength} · tokenizer ${item.info.tokenizer} · ${formatSize(item.info.fileSize)}`)
+          .fontSize(12)
+          .fontColor('#6C6C6C')
+          .width('100%')
+          .margin({ bottom: 5 })
+        Text(item.info.path)
+          .fontSize(11)
+          .fontColor('#5F6068')
+          .width('100%')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ bottom: 16 })
         Row() {
           if (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0) {
-            Button('停止模型')
+            Row() {
+              Text('●').fontSize(9).fontColor('#78D891').margin({ right: 6 })
+              Text('已加载').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#A8DDB5')
+            }
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+            .backgroundColor('#25352A')
+            .borderRadius(12)
+            Button('卸载')
               .onClick(() => { this.inference.unload(); })
+              .margin({ left: 10 })
               .backgroundColor('#2C2D33')
-              .fontColor('#E58C8C')
+              .fontColor('#A0A0A0')
               .borderRadius(12)
           } else {
             Button(this.appState.loadingModelPath === item.info.path ? '加载中' : '加载模型')
@@ -138,7 +192,7 @@ export struct ModelRegistryPage {
           Button('删除注册表')
             .onClick(() => { this.pendingDelete = item.info; })
             .margin({ left: 10 })
-            .backgroundColor('#2C2D33')
+            .backgroundColor('#25262B')
             .fontColor('#A0A0A0')
             .borderRadius(12)
         }
@@ -164,6 +218,15 @@ export struct ModelRegistryPage {
     .borderColor(item.exists ? (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0 ? '#4D465F' : '#2C2D33') : '#3A2C2C')
     .borderRadius(16)
     .margin({ bottom: 12 })
+  }
+
+  private hasMissingModels(): boolean {
+    for (const item of this.appState.models) {
+      if (!item.exists) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async confirmDelete(): Promise<void> {

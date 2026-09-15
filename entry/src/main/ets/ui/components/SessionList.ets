@@ -11,43 +11,60 @@ export struct SessionList {
   @State pendingDeleteId: number = 0;
 
   build() {
-    Stack() {
+    Stack({ alignContent: Alignment.TopStart }) {
       Column() {
         Row() {
-          Button('+  新建对话')
+          Column() {
+            Text('对话')
+              .fontSize(22)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FFFFFF')
+            Text(`${this.appState.sessions.length} 个会话`)
+              .fontSize(12)
+              .fontColor('#6C6C6C')
+              .margin({ top: 3 })
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+          Button('+  新建')
             .enabled(!this.appState.loading)
             .onClick(() => this.createAndSelect())
-            .layoutWeight(1)
+            .height(40)
             .backgroundColor(this.appState.loading ? '#35343F' : '#6C5CE7')
             .fontColor(this.appState.loading ? '#8F8D98' : '#FFFFFF')
             .borderRadius(12)
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 16, bottom: 12 })
+        .padding({ left: 16, right: 16, top: 20, bottom: 14 })
+        .alignItems(VerticalAlign.Center)
 
-        Scroll() {
-          Column() {
-            if (this.appState.sessions.length === 0) {
+        List() {
+          if (this.appState.sessions.length === 0) {
+            ListItem() {
               Column() {
                 Text('暂无对话')
                   .fontSize(14)
                   .fontColor('#6C6C6C')
-                  .margin({ top: 40 })
               }
               .width('100%')
               .alignItems(HorizontalAlign.Center)
+              .padding({ top: 28, bottom: 20 })
             }
-            ForEach(this.sortedSessions(), (session: Session) => {
-              this.sessionItem(session)
-            }, (session: Session) => `${session.id}:${session.status}:${session.updatedAt}:${session.pinned}`)
           }
-          .width('100%')
+          ForEach(this.sortedSessions(), (session: Session) => {
+            ListItem() {
+              this.sessionItem(session)
+            }
+          }, (session: Session) => `${session.id}:${session.status}:${session.updatedAt}:${session.pinned}`)
         }
         .layoutWeight(1)
         .width('100%')
+        .alignListItem(ListItemAlign.Start)
+        .scrollBar(BarState.Auto)
       }
       .width('100%')
       .height('100%')
+      .justifyContent(FlexAlign.Start)
 
       if (this.pendingDeleteId !== 0) {
         ConfirmDialog({
