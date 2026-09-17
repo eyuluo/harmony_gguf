@@ -133,6 +133,33 @@ int main(int argc, char ** argv) {
         t.assert_true("清除停止状态后可重新分配", next.id > 0);
     });
 
+    t.test("全局停止期间拒绝新请求", [&](testing & t) {
+        ModelFixture model;
+        if (!model.load(t, 1)) { return; }
+        EngineState::Instance().RequestStopAll();
+        RequestFixture blocked;
+        blocked.id = EngineState::Instance().BeginGenerate(SlotPool::Napi, blocked.seq, blocked.stop);
+        t.assert_equal("停止状态返回 0", uint64_t(0), blocked.id);
+        EngineState::Instance().ClearStopAll();
+        RequestFixture accepted;
+        accepted.begin(t);
+    });
+
+    t.test("重复结束请求不破坏活跃计数", [&](testing & t) {
+        ModelFixture model;
+        if (!model.load(t, 1)) { return; }
+        RequestFixture request;
+        if (!request.begin(t)) { return; }
+        const auto id = request.id;
+        const auto seq = request.seq;
+        request.end();
+        EngineState::Instance().EndGenerate(id, seq);
+        EngineState::Instance().EndGenerate(0, -1);
+        EngineState::Instance().WaitGenerateEnd();
+        EngineState::Instance().UnloadModel();
+        t.assert_true("重复结束后仍可卸载", !EngineState::Instance().IsLoaded());
+    });
+
     t.test("生成结束后卸载回归", [&](testing & t) {
         ModelFixture model;
         if (!model.load(t, 1)) { return; }

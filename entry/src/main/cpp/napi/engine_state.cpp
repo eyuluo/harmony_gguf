@@ -36,6 +36,14 @@ int32_t EngineState::AcquireSlotLocked(SlotPool pool) {
     return -1;
 }
 
+void EngineState::ReleaseUnusedSlot(int32_t seq_id) {
+    std::lock_guard<std::mutex> lock(slot_mutex_);
+    if (seq_id >= 0 && static_cast<size_t>(seq_id) < slot_used_.size()) {
+        slot_used_[static_cast<size_t>(seq_id)] = false;
+    }
+    slot_cv_.notify_one();
+}
+
 void EngineState::ReleaseSlot(llama_seq_id seq_id) {
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -56,6 +64,11 @@ void EngineState::ReleaseSlot(llama_seq_id seq_id) {
 
 uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
                                      std::shared_ptr<std::atomic_bool> & out_stop_flag) {
+    std::lock_guard<std::mutex> lifecycle_lock(mutex_);
+    if (model_ == nullptr || stop_all_.load(std::memory_order_relaxed)) {
+        return 0;
+    }
+
     auto flag = std::make_shared<std::atomic_bool>(false);
     uint64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
 
@@ -63,10 +76,7 @@ uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
         std::lock_guard<std::mutex> lock(sessions_mutex_);
         sessions_[id] = flag;
     }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        active_count_++;
-    }
+    active_count_++;
 
     out_seq_id = static_cast<llama_seq_id>(seq_id);
     out_stop_flag = flag;
@@ -83,7 +93,11 @@ uint64_t EngineState::BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
     if (seq_id < 0) {
         return 0;
     }
-    return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    uint64_t id = CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    if (id == 0) {
+        ReleaseUnusedSlot(seq_id);
+    }
+    return id;
 }
 
 uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
@@ -119,13 +133,21 @@ uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_se
     }
     lock.unlock();
 
-    return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    uint64_t id = CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    if (id == 0) {
+        ReleaseUnusedSlot(seq_id);
+    }
+    return id;
 }
 
 void EngineState::EndGenerate(uint64_t id, llama_seq_id seq_id) {
+    bool removed = false;
     {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
-        sessions_.erase(id);
+        removed = sessions_.erase(id) > 0;
+    }
+    if (!removed) {
+        return;
     }
     ReleaseSlot(seq_id);
     {

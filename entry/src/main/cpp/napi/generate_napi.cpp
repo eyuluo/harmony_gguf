@@ -240,6 +240,7 @@ static napi_value StopGenerate(napi_env env, napi_callback_info info) {
 // stopAllGenerations(): void
 static napi_value StopAllGenerations(napi_env env, napi_callback_info info) {
     EngineState::Instance().RequestStopAll();
+    EngineState::Instance().ClearStopAll();
 
     napi_value result = nullptr;
     napi_get_undefined(env, &result);
