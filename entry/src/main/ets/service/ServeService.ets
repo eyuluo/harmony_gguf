@@ -7,7 +7,7 @@ import { AppState } from './AppState';
 
 const DOMAIN = 0x0000;
 const TAG = 'ServeService';
-const BASE_URL = 'http://127.0.0.1:8080';
+const BASE_URL = 'http://127.0.0.1:5160';
 
 export class ServeService {
   private static instance: ServeService | null = null;
@@ -32,7 +32,7 @@ export class ServeService {
       return;
     }
     try {
-      testNapi.startServer({ host: '127.0.0.1', port: 8080 });
+      testNapi.startServer({ host: '127.0.0.1', port: 5160 });
       this.refreshServerStatus();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'start server failed: %{public}s', String(error));

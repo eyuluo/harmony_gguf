@@ -13,7 +13,6 @@ import { ParamConfigDialog } from '../ui/components/ParamConfigDialog';
 import { ChatPage } from '../ui/pages/ChatPage';
 import { ModelRegistryPage } from '../ui/pages/ModelRegistryPage';
 import { ServePage } from '../ui/pages/ServePage';
-import { SettingsPage } from '../ui/pages/SettingsPage';
 
 const DOMAIN = 0x0000;
 const TAG = 'HarmonyGGUF';
@@ -128,8 +127,6 @@ struct Index {
         isWide: this.isWide,
         onOpenModels: () => this.openModels(2)
       })
-    } else {
-      SettingsPage({ appState: this.appState })
     }
   }
 
@@ -163,10 +160,12 @@ struct Index {
         hilog.warn(DOMAIN, TAG, 'save settings failed: %{public}s', String(error));
       }
     }
+    const mmprojPath = await this.modelService.resolveMmproj(model);
     const config: LoadConfig = {
       contextLength: this.appState.contextLength,
       threads: this.appState.threads,
-      parallel: this.appState.parallel
+      parallel: this.appState.parallel,
+      mmprojPath: mmprojPath
     };
     await this.inference.loadModel(model, config);
     if (this.appState.modelId > 0) {

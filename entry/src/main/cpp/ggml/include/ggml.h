@@ -1443,6 +1443,13 @@ extern "C" {
             struct ggml_tensor * a,
             enum ggml_prec       prec);
 
+    // [TAG_GGML_PREC]
+    // set the minimum required accumulator type for the implementation to use during the compute
+    // return false on failure
+    GGML_API bool ggml_prec_set_acc(
+            struct ggml_tensor * a,
+            enum ggml_prec       prec);
+
     // change the hint of a matrix multiplication
     GGML_API void ggml_mul_mat_set_hint(
             struct ggml_tensor * a,

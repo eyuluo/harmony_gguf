@@ -3313,6 +3313,24 @@ void ggml_mul_mat_set_prec(
     ggml_set_op_params_i32(a, 0, prec_i32);
 }
 
+bool ggml_prec_set_acc(
+        struct ggml_tensor * a,
+        enum ggml_prec       prec) {
+    switch (a->op) {
+        case GGML_OP_MUL_MAT:
+        case GGML_OP_MUL_MAT_ID:
+            ggml_set_op_params_i32(a, 0, (int32_t) prec);
+            break;
+        case GGML_OP_FLASH_ATTN_EXT:
+            ggml_set_op_params_i32(a, 3, (int32_t) prec);
+            break;
+        default:
+            return false;
+    }
+
+    return true;
+}
+
 void ggml_mul_mat_set_hint(
         struct ggml_tensor * a,
         enum ggml_op_hint    hint) {

@@ -178,6 +178,25 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     params.max_tokens = max_tokens;
     params.threads = threads;
 
+    // 解析多模态图片路径（可选）：string[]
+    napi_value js_images = napi_util::GetProperty(env, args[1], "images");
+    if (js_images != nullptr) {
+        bool is_array = false;
+        napi_is_array(env, js_images, &is_array);
+        if (is_array) {
+            uint32_t img_count = 0;
+            napi_get_array_length(env, js_images, &img_count);
+            for (uint32_t i = 0; i < img_count; i++) {
+                napi_value item = nullptr;
+                napi_get_element(env, js_images, i, &item);
+                std::string path;
+                if (item != nullptr && napi_util::GetString(env, item, path) && !path.empty()) {
+                    params.images.push_back(std::move(path));
+                }
+            }
+        }
+    }
+
     TsFn * cb = new TsFn(env, args[2], "generate", GenerateJsCallback);
     if (!cb->valid()) {
         EngineState::Instance().EndGenerate(request_id, seq_id);

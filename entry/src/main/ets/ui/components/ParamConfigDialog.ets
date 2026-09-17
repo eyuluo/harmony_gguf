@@ -9,7 +9,7 @@ export struct ParamConfigDialog {
 
   @State localContextLength: number = 0;
   @State localThreads: number = 0;
-  @State localParallel: number = 2;
+  @State localParallel: number = 8;
   @State localMaxTokens: number = 512;
   @State localTemperature: number = 0.8;
   @State localTopK: number = 40;

@@ -189,12 +189,23 @@ export struct ModelRegistryPage {
               .fontColor('#FFFFFF')
               .borderRadius(12)
           }
+          if (item.info.mmproj === null) {
+            Button('导入投影器')
+              .onClick(() => { this.modelService.importMmproj(item.info); })
+              .margin({ left: 10 })
+              .backgroundColor('#2C2D33')
+              .fontColor('#A0A0A0')
+              .borderRadius(12)
+          }
           Button('删除注册表')
             .onClick(() => { this.pendingDelete = item.info; })
             .margin({ left: 10 })
             .backgroundColor('#25262B')
             .fontColor('#A0A0A0')
             .borderRadius(12)
+        }
+        if (item.info.mmproj !== null) {
+          this.mmprojLayer(item)
         }
       } else {
         Text('未在该位置找到该模型')
@@ -218,6 +229,50 @@ export struct ModelRegistryPage {
     .borderColor(item.exists ? (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0 ? '#4D465F' : '#2C2D33') : '#3A2C2C')
     .borderRadius(16)
     .margin({ bottom: 12 })
+  }
+
+  @Builder
+  mmprojLayer(item: ModelItem) {
+    if (item.info.mmproj !== null) {
+      Column() {
+        Divider().color('#2C2D33').margin({ top: 14, bottom: 12 })
+        Text(`投影器：${item.info.mmproj.name}`)
+          .fontSize(13)
+          .fontColor('#C9C9CF')
+          .width('100%')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(item.info.mmproj.path)
+          .fontSize(10)
+          .fontColor('#5F6068')
+          .width('100%')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 2 })
+        Text(`${item.info.mmproj.projectorType} · embd ${item.info.mmproj.embdDim} · ${formatSize(item.info.mmproj.fileSize)}`)
+          .fontSize(11)
+          .fontColor('#6C6C6C')
+          .width('100%')
+          .margin({ top: 4, bottom: 10 })
+        Row() {
+          Button('选择投影器')
+            .onClick(() => { this.modelService.importMmproj(item.info); })
+            .backgroundColor('#25262B')
+            .fontColor('#A0A0A0')
+            .borderRadius(10)
+          Button('删除投影器')
+            .onClick(() => { this.modelService.deleteMmproj(item.info); })
+            .margin({ left: 10 })
+            .backgroundColor('#2C2D33')
+            .fontColor('#A0A0A0')
+            .borderRadius(10)
+        }
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 2, bottom: 12 })
+      .backgroundColor('#191A1E')
+      .borderRadius(12)
+    }
   }
 
   private hasMissingModels(): boolean {

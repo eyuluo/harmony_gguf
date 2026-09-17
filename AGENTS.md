@@ -8,41 +8,28 @@
 
 ```
 ArkTS UI（ArkUI） → 服务层（ArkTS） → NAPI 桥接（C++） → 推理引擎（C++，移植 llama.cpp，仅 CPU）
+                                                        → 多模态视觉（C++，移植 libmtmd，mmproj）
                                                         → Serve 服务（C++，cpp-httplib，OpenAI 兼容）
 ```
 
 - NAPI 模块名：`entry`，产物 `libentry.so`（ArkTS 侧 `import napi from 'libentry.so'`）。
 - MVP 仅 CPU 推理；NPU/GPU 属 P2。架构范围不收缩（llama / qwen2 / gemma / mistral / deepseek / chatglm 等）。
+- 支持多模态视觉推理（mmproj 视觉投影，llava / qwen2vl / qwen3vl / minicpmv 等）；Serve 侧不做多模态。
 
 ## 2. 环境与工具链
 
 - 操作系统：Windows 11，Shell：PowerShell 7+。
-- DevEco Studio，HarmonyOS SDK 26.0.0（API 12+），OHOS NDK（clang），native 编译器为 BiSheng。
+- DevEco Studio，HarmonyOS SDK 26.0.0，OHOS NDK（clang），native 编译器为 BiSheng。
 - 上游源码：`D:\project\llama.cpp`（0.3.0-dev，**非 git 仓库**）。
 
-## 3. 命令
-
-```powershell
-# 构建 HAP
-hvigorw assembleHap --mode module -p product=default
-
-# 单元测试（ArkTS，@ohos/hypium）
-hvigorw test
-
-# 代码检查（ArkTS，规则见 code-linter.json5）
-hvigorw codeLinter
-```
-
-> 注意：本仓库无 `hvigorw` 可执行脚本时，需通过 DevEco Studio 内置功能或系统已安装的 hvigor 命令执行。构建/测试前若不确定，先确认命令是否可用。
-
-## 4. 目录结构
+## 3. 目录结构
 
 ```
 Harmony_gguf/
 ├── docs/            # 设计文档（见 §5）
 ├── entry/           # 主模块（hap）
 │   └── src/main/
-│       ├── ets/     # ArkTS 代码（entryability、pages）
+│       ├── ets/     # ArkTS 代码（entryability、pages、service、ui）
 │       ├── cpp/     # C++（napi_init.cpp、CMakeLists.txt、types/libentry/）
 │       └── resources/
 ├── test/            # C++ 测试（移植自 llama.cpp，testing.h 框架）
@@ -55,10 +42,10 @@ Harmony_gguf/
 ```
 
 业务代码最终按 `docs/TDD.md` 组织：
-- ArkTS：`ui/`、`service/`、`registry/`
-- C++：`napi/`、`engine/`、`serve/`、`common/`
+- ArkTS：`ui/`、`service/`（内置模型注册表为 `resources/rawfile/models.json`）
+- C++：`napi/`、`engine/`、`mtmd/`（libmtmd 多模态，含 `models/`）、`vendor/`（stb_image / hash / miniaudio 等）、`serve/`、`common/`、`types/libentry/`（Index.d.ts）
 
-## 5. 文档导航
+## 4. 文档导航
 
 | 文档 | 用途 |
 |------|------|
@@ -68,25 +55,20 @@ Harmony_gguf/
 | `docs/API.md` | NAPI 接口契约（数据结构、错误码、接口定义，A/B 联调依据） |
 | `docs/PLAN-35DAY.md` | 35 天开发计划（阶段 0–5、里程碑 M1–M5、三角色分工） |
 
-## 6. 开发约定
+## 5. 开发约定
 
 - **语言**：所有输出（代码注释、文档、回复）使用简体中文；专业术语可保留英文。
 - **注释**：默认不写注释，除非用户明确要求。
 - **代码风格**：遵循现有代码与 DevEco 模板；ArkTS 通过 `code-linter.json5` 校验（性能 + typescript-eslint + 安全规则）。
 - **错误码**：NAPI 统一使用 `docs/API.md` 第 3 节的 0 / 1001–1007 规范。
 
-## 7. 关键约束（务必遵守）
+## 6. 关键约束（务必遵守）
 
-1. **禁止整体拷贝上游源码**：`D:\project\llama.cpp` 仅按 `docs/PORTING.md` 清单**按需移植**所需文件，不整目录复制。
+1. **禁止整体拷贝上游源码**：`D:\project\llama.cpp` 仅**按需移植**所需文件，不整目录复制。
 2. **只保留 CPU 后端**：裁剪 CUDA/Metal/Vulkan/OpenCL/SYCL/CANN/RPC 等所有非 CPU 后端与非 ARM 架构代码。
 3. **架构范围不收缩**：引擎需覆盖 llama / qwen2 / gemma / mistral / deepseek / chatglm 等主流架构及其聊天模板。
-4. **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型；切换即卸载旧模型。但可同时处理多个生成任务（并发槽位数可配置，默认 2），每个任务独占一个 KV cache 序列槽位与独立采样器。
+4. **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型；切换即卸载旧模型。可同时处理多个生成任务，启用 `kv_unified` 统一 KV 缓冲，槽位按需分配（每池软上限默认 8，可配置），每个任务独占一个 KV cache 序列槽位（seq_id）与独立采样器。
 5. **流式与线程安全**：生成经 `napi_threadsafe_function` 逐 token 回调，推理置于独立 pthread，不阻塞 UI；`generate` 返回 requestId，`stopGenerate(requestId)` 按请求停止，`stopAllGenerations()` 停止全部；`llama_decode` 用互斥锁保护，请求间交错执行。
 6. **隐私与安全**：全程离线；Serve 默认仅监听 `127.0.0.1`，局域网与鉴权需显式开启。
 7. **测试双轨**：ArkTS 侧用 `@ohos/hypium`（`entry/src/test`）；C++ 侧用 `test/` 下 `testing.h` 框架（用于 M1 本地/真机 shell 验证）。
-
-## 8. 角色分工（见 prompt.md）
-
-- **A — Native 引擎工程师**：llama.cpp 移植、编译优化、NAPI 桥接、HTTP Serve（M5）。
-- **B — 应用开发工程师**：全部 ArkTS 代码（UI、InferenceService/ModelManager/注册表/会话存储、ServeController、参数配置）。
-- **C — 质量保障工程师**：单元/集成/API 自动化测试、性能基线、CI、崩溃与内存监控（贯穿全程）。
+8. **多模态视觉推理**：mmproj（libmtmd）提供视觉投影，支持 llava / qwen2vl / qwen3vl / minicpmv 等；仅 CPU 后端；NAPI `generate` 的 `images` 传图片文件路径（C++ 用 stb_image 解码）；`loadModel` 的 `LoadConfig.mmprojPath` 指定投影器；mmproj 与模型按 embedding 维度匹配，冲突时自动删除投影器注册表并回退纯文本；Serve 不做多模态。

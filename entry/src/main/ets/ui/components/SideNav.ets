@@ -11,7 +11,6 @@ export struct SideNav {
       this.navItem($r('app.media.ic_chat'), this.chatLabel(), 0)
       this.navItem($r('app.media.ic_model'), '模型', 1)
       this.navItem($r('app.media.ic_server'), '服务', 2)
-      this.navItem($r('app.media.ic_settings'), '设置', 3)
       Blank()
     }
     .width(188)
