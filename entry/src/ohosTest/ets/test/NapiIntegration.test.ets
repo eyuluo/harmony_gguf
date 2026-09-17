@@ -54,6 +54,10 @@ export default function napiIntegrationTest() {
       napi.stopAllGenerations();
       expectError(() => { napi.generate('你好', {}, () => {}); }, 1002);
     });
+    it('接口标识参数非法抛出1001', 0, () => {
+      expectError(() => { napi.unloadModel(2); }, 1001);
+      expectError(() => { napi.stopGenerate(-1); }, 1001);
+    });
   });
 
   describe('M2真实NAPI桥接', () => {
@@ -85,6 +89,18 @@ export default function napiIntegrationTest() {
       loadPrimary();
       napi.unloadModel(1);
       expectError(() => { napi.generate('你好', {}, () => {}); }, 1002);
+    });
+
+    it('非法加载和生成参数抛出1001且不占用槽位', 0, async () => {
+      const path = requireFixture(PRIMARY.file);
+      expectError(() => { napi.loadModel(path, { parallel: 0 }); }, 1001);
+      loadPrimary(1);
+      expectError(() => {
+        napi.generate(PRIMARY.prompt, { topP: 2 }, () => {});
+      }, 1001);
+      const run = new GenerationProbe();
+      run.start(PRIMARY.prompt, { maxTokens: 4 });
+      await run.verify('done', 4, 1);
     });
 
     it('单模型切换后可以生成', 0, async () => {

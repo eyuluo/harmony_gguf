@@ -40,7 +40,13 @@ export function fixturePath(file: string): string {
 
 export function requireFixture(file: string): string {
   const path = fixturePath(file);
-  if (!fileIo.accessSync(path)) {
+  let exists = false;
+  try {
+    exists = fileIo.accessSync(path);
+  } catch (error) {
+    throw new Error('无法访问 M2 测试模型：' + path);
+  }
+  if (!exists) {
     throw new Error('缺少 M2 测试模型，请按 docs/M2-TESTING.md 部署：' + path);
   }
   return path;

@@ -39,6 +39,25 @@ static inline bool GetBool(napi_env env, napi_value value, bool & out) {
     return napi_get_value_bool(env, value, &out) == napi_ok;
 }
 
+static inline bool IsObject(napi_env env, napi_value value) {
+    napi_valuetype type = napi_undefined;
+    if (value == nullptr || napi_typeof(env, value, &type) != napi_ok || type != napi_object) {
+        return false;
+    }
+    napi_value null_value = nullptr;
+    bool is_null = false;
+    bool is_array = false;
+    napi_get_null(env, &null_value);
+    napi_strict_equals(env, value, null_value, &is_null);
+    napi_is_array(env, value, &is_array);
+    return !is_null && !is_array;
+}
+
+static inline bool HasProperty(napi_env env, napi_value obj, const char * name) {
+    bool has = false;
+    return napi_has_named_property(env, obj, name, &has) == napi_ok && has;
+}
+
 // 读取对象属性，不存在或非对象时返回 nullptr
 static inline napi_value GetProperty(napi_env env, napi_value obj, const char * name) {
     napi_value result = nullptr;
