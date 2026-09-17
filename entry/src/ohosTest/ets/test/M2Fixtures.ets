@@ -15,13 +15,16 @@ export class ModelFixture {
   }
 }
 
-export const PRIMARY = new ModelFixture('llama', 'tinyllama-1.1b-chat-q4_k_m.gguf', 'llama',
-  '<|system|>\n你是一个助手。</s>\n<|user|>\n请从一数到二十。</s>\n<|assistant|>\n');
+export const LLAMA = new ModelFixture('llama', 'smollm2-360m-instruct-q4_k_m.gguf', 'llama',
+  '<|im_start|>system\n你是一个助手。<|im_end|>\n<|im_start|>user\n请从一数到二十。<|im_end|>\n' +
+  '<|im_start|>assistant\n');
+
+export const PRIMARY = new ModelFixture('qwen2', 'qwen2-0.5b-instruct-q4_k_m.gguf', 'qwen2',
+  '<|im_start|>user\n你好，请介绍你自己。<|im_end|>\n<|im_start|>assistant\n');
 
 export const ARCHITECTURES: ModelFixture[] = [
+  LLAMA,
   PRIMARY,
-  new ModelFixture('qwen2', 'qwen2-0.5b-instruct-q4_k_m.gguf', 'qwen2',
-    '<|im_start|>user\n你好，请介绍你自己。<|im_end|>\n<|im_start|>assistant\n'),
   new ModelFixture('gemma2', 'gemma-2-2b-it-q4_k_m.gguf', 'gemma2',
     '<start_of_turn>user\n你好。<end_of_turn>\n<start_of_turn>model\n'),
   new ModelFixture('mistral', 'mistral-7b-instruct-v0.3-q4_k_m.gguf', 'llama',
@@ -35,7 +38,21 @@ export const ARCHITECTURES: ModelFixture[] = [
 ];
 
 export function fixturePath(file: string): string {
-  return abilityDelegatorRegistry.getAbilityDelegator().getAppContext().filesDir + '/m2-models/' + file;
+  const dir = abilityDelegatorRegistry.getAbilityDelegator().getAppContext().filesDir + '/m2-models';
+  try {
+    fileIo.mkdirSync(dir);
+  } catch (error) {
+    let exists = false;
+    try {
+      exists = fileIo.accessSync(dir);
+    } catch (accessError) {
+      throw error as Error;
+    }
+    if (!exists) {
+      throw error as Error;
+    }
+  }
+  return dir + '/' + file;
 }
 
 export function requireFixture(file: string): string {
@@ -47,7 +64,7 @@ export function requireFixture(file: string): string {
     throw new Error('无法访问 M2 测试模型：' + path);
   }
   if (!exists) {
-    throw new Error('缺少 M2 测试模型，请按 docs/M2-TESTING.md 部署：' + path);
+    throw new Error('缺少 M2 测试模型，请按 reports/test-report-M2.md 部署：' + path);
   }
   return path;
 }
