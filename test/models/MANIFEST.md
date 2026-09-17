@@ -19,6 +19,8 @@
 | deepseek | DeepSeek-R1-Distill-Qwen-1.5B | Q4_K_M | ~1.0 GB | 特殊架构补齐（阶段2） | 待获取 |
 | chatglm | chatglm3-6b | Q4_K_M | ~3.5 GB | 特殊架构补齐（阶段2） | 待获取 |
 
+M2 原生 MLA 验证需另备 `deepseek2-mla-q4_k_m.gguf`，其 GGUF `general.architecture` 必须为 `deepseek2`，且包含真实权重。以上 DeepSeek-R1-Distill-Qwen 只覆盖 qwen2 蒸馏路线，不能证明原生 DeepSeek MLA 已覆盖。该额外模型尚无自动下载项，部署和设备用例见 `docs/M2-TESTING.md`。
+
 ## 3. 获取方式
 
 运行获取脚本自动下载（需网络，下载到 `test/models/inference/`）：

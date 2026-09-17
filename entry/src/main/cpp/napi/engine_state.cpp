@@ -198,6 +198,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     fprintf(stderr, "[Harmony-GGUF] loading model: %s (%lld bytes)\n", path.c_str(), (long long)st.st_size);
 
     llama_model_params model_params = llama_model_default_params();
+    model_params.vocab_only = config.vocab_only;
 
     llama_model * model = llama_model_load_from_file(path.c_str(), model_params);
     if (model == nullptr) {
@@ -211,6 +212,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     uint32_t n_ctx = config.context_length;
     if (n_ctx == 0) {
         n_ctx = static_cast<uint32_t>(llama_model_n_ctx_train(model));
+        if (n_ctx == 0) { n_ctx = 512; }
     }
 
     llama_context_params ctx_params = llama_context_default_params();
@@ -220,23 +222,23 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         ctx_params.n_threads = config.threads;
         ctx_params.n_threads_batch = config.threads;
     }
-
-    llama_context * ctx = llama_init_from_model(model, ctx_params);
-    if (ctx == nullptr) {
-        fprintf(stderr, "[Harmony-GGUF] llama_init_from_model failed\n");
-        llama_model_free(model);
-        ClearStopAll();
-        return error_code_value(ErrorCode::ModelLoadFailed);
+    llama_context * ctx = nullptr;
+    if (!config.vocab_only) {
+        ctx = llama_init_from_model(model, ctx_params);
+        if (ctx == nullptr) {
+            fprintf(stderr, "[Harmony-GGUF] llama_init_from_model failed\n");
+            llama_model_free(model);
+            ClearStopAll();
+            return error_code_value(ErrorCode::ModelLoadFailed);
+        }
+        llama_set_abort_callback(ctx, abort_callback, nullptr);
     }
-
-    // 绑定中止回调，用于 stopGenerate/stopAll
-    llama_set_abort_callback(ctx, abort_callback, nullptr);
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
         model_ = model;
         ctx_ = ctx;
-        slot_context_ = llama_n_ctx_seq(ctx);
+        slot_context_ = ctx != nullptr ? llama_n_ctx_seq(ctx) : n_ctx;
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -283,5 +285,5 @@ void EngineState::UnloadModel() {
 
 bool EngineState::IsLoaded() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return model_ != nullptr && ctx_ != nullptr;
+    return model_ != nullptr;
 }

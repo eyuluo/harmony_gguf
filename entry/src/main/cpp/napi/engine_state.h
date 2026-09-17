@@ -24,6 +24,7 @@ struct LoadConfig {
     uint32_t context_length = 0; // 0 = 使用模型默认
     int32_t  threads = 0;        // 0 = 使用默认线程数
     uint32_t parallel = 2;       // 每个槽位池的槽位数（NAPI 与 Serve 各 parallel 个）
+    bool vocab_only = false;
 };
 
 // 引擎全局状态：单模型实例 + 多槽位并发。

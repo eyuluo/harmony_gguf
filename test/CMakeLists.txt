@@ -57,6 +57,13 @@ file(GLOB LLAMA_SRC
     ${CPP_ROOT}/engine/*.cpp
     ${CPP_ROOT}/engine/models/*.cpp)
 
+# ---- NAPI 桥接层源文件（纯 C++ 逻辑，不依赖 NAPI 运行时）----
+# engine_state.cpp / llama_inference.cpp 仅依赖 llama.h + 标准库，
+# 可在本地 C++ 测试中直接链接，验证槽位管理与推理逻辑。
+set(NAPI_LOGIC_SRC
+    ${CPP_ROOT}/napi/engine_state.cpp
+    ${CPP_ROOT}/napi/llama_inference.cpp)
+
 # ---- include 目录 ----
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/harmony
@@ -66,7 +73,9 @@ include_directories(
     ${CPP_ROOT}/ggml/src
     ${CPP_ROOT}/ggml/src/ggml-cpu
     ${CPP_ROOT}/engine
-    ${CPP_ROOT}/engine/models)
+    ${CPP_ROOT}/engine/models
+    ${CPP_ROOT}/napi
+    ${CPP_ROOT}/common)
 
 # ---- 编译选项辅助宏 ----
 if(MSVC)
@@ -77,12 +86,13 @@ else()
     set(ENGINE_DEFS _GNU_SOURCE GGML_USE_CPU)
 endif()
 
-# ---- ggml + llama 静态库 ----
+# ---- ggml + llama + NAPI 逻辑 静态库 ----
 add_library(engine_test_lib STATIC
     ${GGML_SRC}
     ${GGML_CPU_SRC}
     ${GGML_ARCH_SRC}
-    ${LLAMA_SRC})
+    ${LLAMA_SRC}
+    ${NAPI_LOGIC_SRC})
 
 target_compile_options(engine_test_lib PRIVATE ${CXX_FLAGS} ${GGML_ARCH_FLAGS})
 target_compile_definitions(engine_test_lib PRIVATE
@@ -105,3 +115,10 @@ add_engine_test(test-model-load harmony/test-model-load.cpp)
 add_engine_test(test-smoke-generate harmony/test-smoke-generate.cpp)
 add_engine_test(test-tokenizer-roundtrip harmony/test-tokenizer-roundtrip.cpp)
 add_engine_test(test-memory-check harmony/test-memory-check.cpp)
+add_engine_test(test-napi-bridge harmony/test-napi-bridge.cpp)
+
+enable_testing()
+add_test(NAME m2-napi-bridge COMMAND test-napi-bridge)
+set_tests_properties(m2-napi-bridge PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    TIMEOUT 120)
