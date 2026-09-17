@@ -41,6 +41,9 @@
 - [x] 定义性能基线指标（首字延迟 < 5s、tokens/s 目标值）
 
 ### 阶段 2 — NAPI 桥接（Day 13–18）
+- [x] 完成 M2 测试编写：11 个 C++ 用例、20 个设备用例及运行说明（`docs/M2-TESTING.md`）
+- [x] C++ 测试接入 CTest 超时与 CI；真实 NAPI 测试迁移至 ohosTest，移除空 Native mock 映射
+- [x] 设备测试 HAP 编译验证（未签名；不代表设备执行通过）
 - [ ] NAPI 接口集成测试（parseGgufMetadata / loadModel / unloadModel）
 - [ ] 流式回调稳定性测试（onToken / onDone / onError）
 - [ ] 停止生成按 requestId 验证（stopGenerate / stopAllGenerations）
@@ -251,3 +254,21 @@ cmake --build build --target test-ggml-ops --config Debug
 - [ ] 推理冒烟通过后，记录首字延迟 (TTFT) 与 tokens/s 性能基线数据
 - [ ] KV Cache 测试通过后，确认无内存泄漏
 - [ ] 模拟器/真机 `mul_mat` SIGSEGV 问题定位（见 `error.txt`，需 A 配合修复）
+
+## 10. 阶段 2（M2）测试编写交付
+
+日期：2026-09-17。M1 基线由用户确认，本轮不重复执行 M1。
+
+| 测试层 | 交付内容 | 本轮验证 |
+|---|---|---|
+| C++ EngineState | 生命周期、失败清理、双池上限、复用、请求隔离、停止全部、卸载等待、重复结束保护、异步失败回调 | 11 用例 / 59 断言 / 0 失败 / 0 异常 / 0 跳过 |
+| 设备 NAPI | 元数据与文件大小、1001–1005、模型切换、流式统计、连续生成、并发与停止、卸载中断 | 20 用例编写完成，ohosTest HAP 编译成功；未运行设备测试 |
+| 多架构 | llama/qwen2/gemma2/mistral/DeepSeek 蒸馏/原生 MLA/chatglm，固定家族模板生成 | 已纳入上述 20 个设备用例；需准备带权重模型 |
+| Native 构建 | NAPI 参数校验、生命周期及两个 ABI | arm64-v8a / x86_64 完整编译通过 |
+| 执行保护 | CTest 120 秒进程超时、回调 60 秒超时、唯一终态与 100 ms 终态后观察 | C++ 测试正常退出，无诊断线程残留 |
+
+已修复测试暴露的槽位数量丢失、重复 EndGenerate 导致计数下溢、停止/卸载期间新请求进入、stopAll 后无法继续生成及元数据文件大小错误。NAPI 对加载配置、生成参数、modelId 和 requestId 统一返回 1001 非法参数错误。
+
+测试编写和本地 C++ 验证已完成，但 M2 设备验收尚未完成：`hdc list targets` 为空，`test/models/inference/` 尚无权重模型。1006 故障注入也尚无稳定接口；停止验证依据 stopped 终态，不把 1007 作为必需 error 回调。
+
+运行方式、模型部署、覆盖边界及契约差异见 `docs/M2-TESTING.md`；详细执行记录见 `reports/test-report-M2.md`。`hvigorw codeLinter` 当前未注册对应任务，未能执行 lint；测试目录本身也在现有 linter 排除列表中。

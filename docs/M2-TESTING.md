@@ -2,8 +2,8 @@
 
 ## 范围与入口
 
-- `test/harmony/test-napi-bridge.cpp`：9 个纯 C++ 用例，验证模型生命周期、槽位池、请求隔离、停止、卸载等待和异步失败清理。使用已有 vocab 模型，不证明真实推理或 TSFN 行为。
-- `entry/src/ohosTest/ets/test/NapiIntegration.test.ets`：25 个设备用例（6 个无模型接口用例、12 个桥接用例、7 个架构冒烟用例）。通过设备测试 `List.test.ets` 注册，直接调用 `libentry.so`。
+- `test/harmony/test-napi-bridge.cpp`：11 个纯 C++ 用例，验证模型生命周期、槽位池、请求隔离、停止、卸载等待、重复结束保护和异步失败清理。使用已有 vocab 模型，不证明真实推理或 TSFN 行为。
+- `entry/src/ohosTest/ets/test/NapiIntegration.test.ets`：20 个设备用例（7 个无模型接口用例、6 个桥接用例、7 个架构冒烟用例）。通过设备测试 `List.test.ets` 注册，直接调用 `libentry.so`。
 - `M2GenerationProbe.ets`：记录事件、请求编号、统计和错误；60 秒终态超时，终态后观察 100 ms，检查重复终态与迟到回调。停止调用后允许已经排队的 token，收到终态后不允许事件。
 - 本地 `entry/src/test/List.test.ets` 仅注册本地单测。空的 Native mock 映射已移除，避免设备集成测试误用空对象。
 
@@ -68,12 +68,10 @@ hdc shell aa test -b cn.hyshiling.Harmony_gguf -m entry_test -s unittest OpenHar
 - 两请求停止隔离、满槽 1005、stopAll 后再次生成、生成中卸载后重新加载均为独立用例。长生成使用 4096 上限并立即请求停止；若模型提前自然结束，用例严格失败，应核查日志，不能放宽为 done 也算成功。
 - API.md 描述共用槽位池，TDD.md 与当前实现描述 NAPI/Serve 独立池。C++ 独立池用例按 TDD 编写；该文档差异需 A/B 统一。HTTP 调度与 Serve 路由不属于本次 M2 测试。
 
-## 当前已知问题
+## 当前状态
 
-2026-09-17 本地 C++ 实测：9 用例、25 断言、7 失败、0 异常、0 跳过，进程约 98 秒正常退出。两个模型生命周期用例通过；其余用例在槽位分配前置断言失败，后续断言尚未执行。
+2026-09-17 本地 C++ 实测：11 用例、59 断言、0 失败、0 异常、0 跳过。此前槽位数量未保存、重复结束导致计数下溢及停止期间新请求进入的问题均已修复并加入回归测试。
 
-当前工作区 `EngineState::LoadModel` 分配了 `slot_used_`，却缺少 `n_slots_per_pool_ = parallel`；`AcquireSlotLocked` 因每池数量为 0 返回失败。该赋值在 HEAD 存在，在本轮开始前的工作区修改中被删除。本轮未改动引擎代码。
+NAPI 参数校验已覆盖加载配置、生成参数、modelId 和 requestId；元数据 `fileSize` 已改为实际文件大小。arm64-v8a 与 x86_64 的 `libentry.so` 均通过 OHOS 工具链完整编译，ohosTest HAP 编译成功。
 
-旧测试收到 requestId=0 后仍调用 EndGenerate，可能把 active_count_ 减为负数，随后卸载等待无法满足；另一个旧诊断用例只 Begin、不安排 End，卸载等待也不会自行结束。新测试先验证分配结果，只为成功请求执行 End，并模拟工作线程完成停止。此前“EndGenerate 后卸载死锁”的记录不能直接作为有效请求路径存在死锁的证据。
-
-静态检查还发现 stopAll 标志只在加载/卸载时清除，以及元数据 fileSize 使用张量大小而非文件实际大小；设备测试分别覆盖这两个风险，尚未实机证实。
+设备未连接，`test/models/inference/` 仅有 `.gitkeep`。因此真实 TSFN 多 token 回调、按请求停止、stopAll、带权重模型加载以及 DeepSeek/ChatGLM 冒烟仍需按本说明执行，不能根据编译结果标记为运行通过。
