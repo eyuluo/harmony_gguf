@@ -58,6 +58,18 @@ file(GLOB NAPI_SRC
 file(GLOB SERVE_SRC
     ${NATIVERENDER_ROOT_PATH}/serve/*.cpp)
 
+# 多模态（mtmd / mmproj 视觉推理，移植自 llama.cpp tools/mtmd）
+file(GLOB MTMD_SRC
+    ${NATIVERENDER_ROOT_PATH}/mtmd/*.cpp
+    ${NATIVERENDER_ROOT_PATH}/mtmd/models/*.cpp)
+
+# 第三方 vendor（stb_image/miniaudio/sheredom 为 header-only；hash 需编译 .c/.cpp）
+file(GLOB VENDOR_SRC
+    ${NATIVERENDER_ROOT_PATH}/vendor/hash/hash.cpp
+    ${NATIVERENDER_ROOT_PATH}/vendor/hash/xxhash/xxhash.c
+    ${NATIVERENDER_ROOT_PATH}/vendor/hash/sha256/sha256.c
+    ${NATIVERENDER_ROOT_PATH}/vendor/hash/sha1/sha1.cpp)
+
 # ---- include 目录 ----
 include_directories(
     ${NATIVERENDER_ROOT_PATH}
@@ -67,6 +79,11 @@ include_directories(
     ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu
     ${NATIVERENDER_ROOT_PATH}/engine
     ${NATIVERENDER_ROOT_PATH}/engine/models
+    ${NATIVERENDER_ROOT_PATH}/mtmd
+    ${NATIVERENDER_ROOT_PATH}/mtmd/models
+    ${NATIVERENDER_ROOT_PATH}/mtmd/debug
+    ${NATIVERENDER_ROOT_PATH}/vendor
+    ${NATIVERENDER_ROOT_PATH}/vendor/hash
     ${NATIVERENDER_ROOT_PATH}/napi
     ${NATIVERENDER_ROOT_PATH}/common
     ${NATIVERENDER_ROOT_PATH}/serve)
@@ -78,8 +95,12 @@ add_library(entry SHARED
     ${GGML_CPU_SRC}
     ${GGML_ARCH_SRC}
     ${LLAMA_SRC}
+    ${MTMD_SRC}
+    ${VENDOR_SRC}
     ${NAPI_SRC}
     ${SERVE_SRC})
+
+# sha1.cpp 使用 C++ namespace（vendor_hash），保留 .cpp 扩展名以 C++ 编译
 
 target_link_libraries(entry PUBLIC libace_napi.z.so)
 

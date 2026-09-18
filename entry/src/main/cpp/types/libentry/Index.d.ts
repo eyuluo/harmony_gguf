@@ -5,12 +5,23 @@ export interface ModelMetadata {
   contextLength: number;
   tokenizer: string;
   fileSize: number;
+  embdDim: number;
+}
+
+export interface MmprojMetadata {
+  architecture: string;
+  projectorType: string;
+  embdDim: number;
+  hasVision: boolean;
+  hasAudio: boolean;
+  fileSize: number;
 }
 
 export interface LoadConfig {
   contextLength?: number;
   threads?: number;
   parallel?: number;
+  mmprojPath?: string;
 }
 
 export interface GenerateParams {
@@ -20,6 +31,7 @@ export interface GenerateParams {
   repeatPenalty?: number;
   maxTokens?: number;
   threads?: number;
+  images?: string[];
 }
 
 export interface GenerateStats {
@@ -43,6 +55,7 @@ export type GenerateEvent = 'token' | 'done' | 'error' | 'stopped';
 export type GenerateCallback = (event: GenerateEvent, data: TokenData | GenerateStats | GenerateError) => void;
 
 export const parseGgufMetadata: (path: string) => ModelMetadata;
+export const parseMmprojMetadata: (path: string) => MmprojMetadata;
 export const loadModel: (path: string, config?: LoadConfig) => number;
 export const unloadModel: (modelId: number) => void;
 export const generate: (prompt: string, params: GenerateParams, callback: GenerateCallback) => number;

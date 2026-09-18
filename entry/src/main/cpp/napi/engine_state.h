@@ -13,6 +13,9 @@
 
 #include "llama.h"
 
+// 多模态视觉上下文（libmtmd），在 engine_state.cpp 中定义与释放
+struct mtmd_context;
+
 // 槽位池来源：NAPI 直接调用与 Serve HTTP 服务各自独立池，互不抢占
 enum class SlotPool : uint8_t {
     Napi = 0,  // NAPI generate 直接调用
@@ -23,8 +26,8 @@ enum class SlotPool : uint8_t {
 struct LoadConfig {
     uint32_t context_length = 0; // 0 = 使用模型默认
     int32_t  threads = 0;        // 0 = 使用默认线程数
-    uint32_t parallel = 2;       // 每个槽位池的槽位数（NAPI 与 Serve 各 parallel 个）
-    bool vocab_only = false;
+    uint32_t parallel = 8;       // 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个）
+    std::string mmproj_path;     // mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态）
 };
 
 // 引擎全局状态：单模型实例 + 多槽位并发。
@@ -59,7 +62,13 @@ public:
         return model_ != nullptr ? llama_model_get_vocab(model_) : nullptr;
     }
 
-    // 每个槽位的上下文长度上限（未加载时为 0）
+    // 多模态视觉上下文（未加载 mmproj 时为 nullptr）
+    mtmd_context * mtmd_ctx() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return mtmd_ctx_;
+    }
+
+    // 每槽位逻辑上下文软上限（用于 context shift；未加载时为 0）
     uint32_t slot_context() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return slot_context_;
@@ -115,11 +124,12 @@ private:
     uint64_t CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
                             std::shared_ptr<std::atomic_bool> & out_stop_flag);
 
-    mutable std::mutex mutex_;       // 保护 model_/ctx_/slot_context_/active_count_ 生命周期
+    mutable std::mutex mutex_;       // 保护 model_/ctx_/mtmd_ctx_/slot_context_/active_count_ 生命周期
     std::condition_variable gen_cv_; // 等待所有生成结束
     std::mutex decode_mutex_;        // 保护 llama_decode/采样/KV cache 操作
     llama_model * model_ = nullptr;
     llama_context * ctx_ = nullptr;
+    mtmd_context * mtmd_ctx_ = nullptr;
     uint32_t slot_context_ = 0;
     int32_t active_count_ = 0;
 
@@ -130,8 +140,8 @@ private:
 
     std::mutex slot_mutex_;
     std::condition_variable slot_cv_;
-    std::vector<bool> slot_used_;      // 全局槽位占用表：Napi 池 [0, n_slots_per_pool_)，Serve 池 [n_slots_per_pool_, 2*n_slots_per_pool_)
-    size_t n_slots_per_pool_ = 0;      // 每个池的槽位数（未加载时为 0）
+    std::vector<bool> slot_used_;      // seq_id 占用表：Napi 池 [0, n_slots_per_pool_)，Serve 池 [n_slots_per_pool_, 2*n_slots_per_pool_)
+    size_t n_slots_per_pool_ = 0;      // 每池最大并发槽位数（软上限，未加载时为 0）
 
     std::mutex sessions_mutex_;
     std::unordered_map<uint64_t, std::shared_ptr<std::atomic_bool>> sessions_;

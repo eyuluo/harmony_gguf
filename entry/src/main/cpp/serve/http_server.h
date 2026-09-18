@@ -9,7 +9,7 @@
 // 服务器配置（对应 NAPI ServerConfig）
 struct ServerConfig {
     std::string host = "127.0.0.1";
-    int port = 8080;
+    int port = 5160;
     std::string api_key; // 空 = 不鉴权
 };
 
