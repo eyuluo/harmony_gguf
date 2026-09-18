@@ -1,4 +1,4 @@
-﻿/node_modules
+/node_modules
 /oh_modules
 /local.properties
 /.idea
@@ -17,6 +17,3 @@
 # 推理测试模型（大文件，不纳入版本控制）
 /test/models/inference/*.gguf
 /test/models/inference/*.bin
-
-# error 日志
-/error.txt
