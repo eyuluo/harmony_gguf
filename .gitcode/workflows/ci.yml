@@ -1,0 +1,13 @@
+name: Harmony CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-ci:
+    runs-on: windows-latest
