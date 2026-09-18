@@ -1,6 +1,7 @@
 #include <napi/native_api.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -140,6 +141,11 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
+    if (!napi_util::IsObject(env, args[1])) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "params must be an object");
+        return nullptr;
+    }
+
     if (!EngineState::Instance().IsLoaded()) {
         napi_util::ThrowError(env, error_code_value(ErrorCode::ModelNotLoaded), "model not loaded");
         return nullptr;
@@ -164,12 +170,25 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     int32_t max_tokens = params.max_tokens;
     int32_t threads = params.threads;
 
-    napi_util::GetOptionalDouble(env, args[1], "temperature", temperature);
-    napi_util::GetOptionalInt32(env, args[1], "topK", top_k);
-    napi_util::GetOptionalDouble(env, args[1], "topP", top_p);
-    napi_util::GetOptionalDouble(env, args[1], "repeatPenalty", repeat_penalty);
-    napi_util::GetOptionalInt32(env, args[1], "maxTokens", max_tokens);
-    napi_util::GetOptionalInt32(env, args[1], "threads", threads);
+    if ((napi_util::HasProperty(env, args[1], "temperature") &&
+         !napi_util::GetOptionalDouble(env, args[1], "temperature", temperature)) ||
+        (napi_util::HasProperty(env, args[1], "topK") &&
+         !napi_util::GetOptionalInt32(env, args[1], "topK", top_k)) ||
+        (napi_util::HasProperty(env, args[1], "topP") &&
+         !napi_util::GetOptionalDouble(env, args[1], "topP", top_p)) ||
+        (napi_util::HasProperty(env, args[1], "repeatPenalty") &&
+         !napi_util::GetOptionalDouble(env, args[1], "repeatPenalty", repeat_penalty)) ||
+        (napi_util::HasProperty(env, args[1], "maxTokens") &&
+         !napi_util::GetOptionalInt32(env, args[1], "maxTokens", max_tokens)) ||
+        (napi_util::HasProperty(env, args[1], "threads") &&
+         !napi_util::GetOptionalInt32(env, args[1], "threads", threads)) ||
+        !std::isfinite(temperature) || !std::isfinite(top_p) || !std::isfinite(repeat_penalty) ||
+        temperature < 0.0 || top_k <= 0 || top_p <= 0.0 || top_p > 1.0 ||
+        repeat_penalty <= 0.0 || max_tokens <= 0 || threads < 0) {
+        EngineState::Instance().EndGenerate(request_id, seq_id);
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "invalid generate params");
+        return nullptr;
+    }
 
     params.temperature = static_cast<float>(temperature);
     params.top_k = top_k;
@@ -244,12 +263,12 @@ static napi_value StopGenerate(napi_env env, napi_callback_info info) {
     napi_value args[1] = {nullptr};
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-    if (argc >= 1) {
-        int64_t request_id = 0;
-        if (napi_get_value_int64(env, args[0], &request_id) == napi_ok) {
-            EngineState::Instance().RequestStop(static_cast<uint64_t>(request_id));
-        }
+    int64_t request_id = 0;
+    if (argc < 1 || napi_get_value_int64(env, args[0], &request_id) != napi_ok || request_id < 0) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "requestId must be a non-negative number");
+        return nullptr;
     }
+    EngineState::Instance().RequestStop(static_cast<uint64_t>(request_id));
 
     napi_value result = nullptr;
     napi_get_undefined(env, &result);
@@ -259,6 +278,7 @@ static napi_value StopGenerate(napi_env env, napi_callback_info info) {
 // stopAllGenerations(): void
 static napi_value StopAllGenerations(napi_env env, napi_callback_info info) {
     EngineState::Instance().RequestStopAll();
+    EngineState::Instance().ClearStopAll();
 
     napi_value result = nullptr;
     napi_get_undefined(env, &result);

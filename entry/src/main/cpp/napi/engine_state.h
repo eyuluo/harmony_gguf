@@ -118,6 +118,7 @@ private:
     EngineState() = default;
 
     int32_t AcquireSlotLocked(SlotPool pool);
+    void ReleaseUnusedSlot(int32_t seq_id);
     void ReleaseSlot(llama_seq_id seq_id);
     // 已分配槽位后：注册会话、递增活跃计数、写回输出参数，返回 request id
     uint64_t CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,

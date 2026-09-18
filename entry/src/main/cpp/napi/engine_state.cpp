@@ -37,6 +37,14 @@ int32_t EngineState::AcquireSlotLocked(SlotPool pool) {
     return -1;
 }
 
+void EngineState::ReleaseUnusedSlot(int32_t seq_id) {
+    std::lock_guard<std::mutex> lock(slot_mutex_);
+    if (seq_id >= 0 && static_cast<size_t>(seq_id) < slot_used_.size()) {
+        slot_used_[static_cast<size_t>(seq_id)] = false;
+    }
+    slot_cv_.notify_one();
+}
+
 void EngineState::ReleaseSlot(llama_seq_id seq_id) {
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -57,6 +65,11 @@ void EngineState::ReleaseSlot(llama_seq_id seq_id) {
 
 uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
                                      std::shared_ptr<std::atomic_bool> & out_stop_flag) {
+    std::lock_guard<std::mutex> lifecycle_lock(mutex_);
+    if (model_ == nullptr || stop_all_.load(std::memory_order_relaxed)) {
+        return 0;
+    }
+
     auto flag = std::make_shared<std::atomic_bool>(false);
     uint64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
 
@@ -64,10 +77,7 @@ uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
         std::lock_guard<std::mutex> lock(sessions_mutex_);
         sessions_[id] = flag;
     }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        active_count_++;
-    }
+    active_count_++;
 
     out_seq_id = static_cast<llama_seq_id>(seq_id);
     out_stop_flag = flag;
@@ -84,7 +94,11 @@ uint64_t EngineState::BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
     if (seq_id < 0) {
         return 0;
     }
-    return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    uint64_t id = CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    if (id == 0) {
+        ReleaseUnusedSlot(seq_id);
+    }
+    return id;
 }
 
 uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
@@ -120,13 +134,21 @@ uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_se
     }
     lock.unlock();
 
-    return CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    uint64_t id = CommitGenerate(seq_id, out_seq_id, out_stop_flag);
+    if (id == 0) {
+        ReleaseUnusedSlot(seq_id);
+    }
+    return id;
 }
 
 void EngineState::EndGenerate(uint64_t id, llama_seq_id seq_id) {
+    bool removed = false;
     {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
-        sessions_.erase(id);
+        removed = sessions_.erase(id) > 0;
+    }
+    if (!removed) {
+        return;
     }
     ReleaseSlot(seq_id);
     {
@@ -203,6 +225,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     fprintf(stderr, "[Harmony-GGUF] loading model: %s (%lld bytes)\n", path.c_str(), (long long)st.st_size);
 
     llama_model_params model_params = llama_model_default_params();
+    model_params.vocab_only = config.vocab_only;
 
     llama_model * model = llama_model_load_from_file(path.c_str(), model_params);
     if (model == nullptr) {
@@ -226,13 +249,16 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         ctx_params.n_threads = config.threads;
         ctx_params.n_threads_batch = config.threads;
     }
-
-    llama_context * ctx = llama_init_from_model(model, ctx_params);
-    if (ctx == nullptr) {
-        fprintf(stderr, "[Harmony-GGUF] llama_init_from_model failed\n");
-        llama_model_free(model);
-        ClearStopAll();
-        return error_code_value(ErrorCode::ModelLoadFailed);
+    llama_context * ctx = nullptr;
+    if (!config.vocab_only) {
+        ctx = llama_init_from_model(model, ctx_params);
+        if (ctx == nullptr) {
+            fprintf(stderr, "[Harmony-GGUF] llama_init_from_model failed\n");
+            llama_model_free(model);
+            ClearStopAll();
+            return error_code_value(ErrorCode::ModelLoadFailed);
+        }
+        llama_set_abort_callback(ctx, abort_callback, nullptr);
     }
 
     // 绑定中止回调，用于 stopGenerate/stopAll
@@ -313,5 +339,5 @@ void EngineState::UnloadModel() {
 
 bool EngineState::IsLoaded() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return model_ != nullptr && ctx_ != nullptr;
+    return model_ != nullptr;
 }

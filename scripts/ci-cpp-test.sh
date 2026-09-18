@@ -70,6 +70,9 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
+cmake --build "$BUILD_DIR" --target test-napi-bridge --config Debug
+ctest --test-dir "$BUILD_DIR" -R '^m2-napi-bridge$' --output-on-failure --no-tests=error 2>&1 | tee "$REPORT_DIR/m2-cpp-test.log"
+
 echo ""
 if [ "$ALL_PASSED" = true ]; then
   echo "[PASS] C++ 引擎测试全部通过"

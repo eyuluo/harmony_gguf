@@ -116,7 +116,8 @@ static napi_value ParseGgufMetadata(napi_env env, napi_callback_info info) {
     meta.architecture = read_meta_str(model, "general.architecture");
     meta.quantization = llama_ftype_name(llama_model_ftype(model));
     meta.context_length = static_cast<uint32_t>(llama_model_n_ctx_train(model));
-    meta.file_size = llama_model_size(model);
+    struct stat file_stat;
+    meta.file_size = stat(path.c_str(), &file_stat) == 0 ? static_cast<uint64_t>(file_stat.st_size) : 0;
     meta.parameters = format_params(llama_model_n_params(model));
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
@@ -199,6 +200,10 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
 
     LoadConfig config;
     if (argc >= 2) {
+        if (!napi_util::IsObject(env, args[1])) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "config must be an object");
+            return nullptr;
+        }
         uint32_t context_length = 0;
         int32_t threads = 0;
         uint32_t parallel = config.parallel;
@@ -230,6 +235,12 @@ static napi_value UnloadModel(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value args[1] = {nullptr};
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    int32_t model_id = 0;
+    if (argc < 1 || !napi_util::GetInt32(env, args[0], model_id) || model_id != 1) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "modelId must be 1");
+        return nullptr;
+    }
 
     EngineState::Instance().UnloadModel();
 

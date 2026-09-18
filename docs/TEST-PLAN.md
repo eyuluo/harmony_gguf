@@ -41,9 +41,15 @@
 - [x] 定义性能基线指标（首字延迟 < 5s、tokens/s 目标值）
 
 ### 阶段 2 — NAPI 桥接（Day 13–18）
-- [ ] NAPI 接口集成测试（parseGgufMetadata / loadModel / unloadModel）
-- [ ] 流式回调稳定性测试（onToken / onDone / onError）
-- [ ] 停止生成按 requestId 验证（stopGenerate / stopAllGenerations）
+- [x] 完成 M2 测试编写：11 个 C++ 用例及设备侧 NAPI/架构用例；运行与证据统一记录于 `reports/test-report-M2.md`
+- [x] C++ 测试接入 CTest 超时与 CI；真实 NAPI 测试迁移至 ohosTest，移除空 Native mock 映射
+- [x] 设备测试 HAP 编译、模拟器安装与沙箱模型部署流程验证
+- [x] 无模型 NAPI 契约 7 项及 vocab-only 边界通过
+- [x] Qwen2 真实模型独立冒烟通过（1/1，39.723 秒）
+- [ ] NAPI 接口集成测试（parseGgufMetadata / loadModel / unloadModel）完整隔离回归
+- [ ] 流式回调稳定性测试（onToken / onDone / onError）完整隔离回归
+- [ ] 停止生成按 requestId 验证（stopGenerate / stopAllGenerations）完整隔离回归
+- [ ] SmolLM2 / llama 独立冒烟与模型切换（按用户要求延后）
 - [ ] 特殊架构（deepseek / chatglm）冒烟补齐
 
 ### 阶段 3 — 模型+对话（Day 19–23）
@@ -251,3 +257,30 @@ cmake --build build --target test-ggml-ops --config Debug
 - [ ] 推理冒烟通过后，记录首字延迟 (TTFT) 与 tokens/s 性能基线数据
 - [ ] KV Cache 测试通过后，确认无内存泄漏
 - [ ] 模拟器/真机 `mul_mat` SIGSEGV 问题定位（见 `error.txt`，需 A 配合修复）
+
+## 10. 阶段 2（M2）当前记录
+
+> 更新日期：2026-09-17
+>
+> 阶段状态：**进行中，尚未完成验收**
+>
+> 详细报告：`reports/test-report-M2.md`
+
+当前测试已进行到 **Qwen2 真实模型链路打通、准备执行 NAPI 桥接分组回归**。本轮已按用户要求停止测试，SmolLM2 独立冒烟和依赖它的模型切换用例延后。
+
+| 范围 | 当前状态 | 结果 |
+|---|---|---|
+| C++ EngineState | 完成 | 11 用例、59 断言，全部通过；`m2-napi-bridge` 用时 68.83 秒 |
+| Native ABI | 完成 | arm64-v8a、x86_64 编译链接通过 |
+| 模拟器环境 | 完成 | HarmonyOS 6.1.0.126、API 24、x86_64；主 HAP 与 ohosTest HAP 已安装 |
+| 无模型契约 | 完成 | 7 项全部通过 |
+| vocab-only 边界 | 完成 | 解析通过，推理加载按预期拒绝 |
+| Qwen2 冒烟 | 完成 | 1/1 通过，用时 39.723 秒 |
+| NAPI 桥接回归 | 进行中 | 部分场景仅在受超时污染的整轮运行中观察通过，需拆分后重跑 |
+| SmolLM2 / llama | 延后 | `contextLength` 解析为 0；当前不继续独立冒烟 |
+| 模型切换 | 延后 | 现有场景依赖 SmolLM2 |
+| 其他架构 | 未开始 | 缺少 Gemma2、Mistral、DeepSeek、ChatGLM 权重文件 |
+
+已确认一项正式缺陷：同步 `loadModel` 在模拟器主线程加载 Qwen2 时触发 `THREAD_BLOCK_6S`。调用栈落在 `llama_model_load_from_file` 与 `EngineState::LoadModel`，当时内存充足，没有 OOM 证据。
+
+恢复测试后的顺序：重新构建当前 Qwen2 主夹具测试包；分组执行桥接用例；补齐流式、并发、停止和卸载恢复的隔离证据；待用户恢复后再执行 SmolLM2 与模型切换；最后逐个准备和验证其余架构。M2 全部必需项完成且主线程阻塞缺陷得到处理前，不进入“验收通过”状态。
