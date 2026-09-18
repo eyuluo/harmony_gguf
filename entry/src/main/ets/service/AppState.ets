@@ -69,7 +69,7 @@ export class AppState {
 
   contextLength: number = 0;
   threads: number = 0;
-  parallel: number = 2;
+  parallel: number = 8;
 
   temperature: number = 0.8;
   topK: number = 40;

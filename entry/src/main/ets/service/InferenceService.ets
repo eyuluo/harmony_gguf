@@ -51,7 +51,7 @@ export class InferenceService {
     state.loadFailed = false;
     try {
       const modelId = await taskpool.execute(loadModelTask, model.path, config.contextLength ?? 0,
-        config.threads ?? 0, config.parallel ?? 2) as number;
+        config.threads ?? 0, config.parallel ?? 8, config.mmprojPath ?? '') as number;
       state.modelId = modelId;
       state.modelInfo = model;
       state.activeModelPath = model.path;
@@ -204,6 +204,16 @@ export class InferenceService {
 
   private startGenerate(sessionId: number, prompt: string): void {
     const state = this.state!;
+    let images: string[] = [];
+    const session = this.findSession(sessionId);
+    if (session !== null) {
+      for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === 'user') {
+          images = session.messages[i].attachments;
+          break;
+        }
+      }
+    }
     try {
       const requestId = testNapi.generate(prompt, {
         maxTokens: state.maxTokens,
@@ -211,7 +221,8 @@ export class InferenceService {
         topK: state.topK,
         topP: state.topP,
         repeatPenalty: state.repeatPenalty,
-        threads: state.threads
+        threads: state.threads,
+        images: images
       }, (event: string, data: object) => {
         this.onGenerateEvent(sessionId, event, data);
       });

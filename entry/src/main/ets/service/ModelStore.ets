@@ -2,6 +2,15 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
+export interface StoredMmprojInfo {
+  path: string;
+  name: string;
+  architecture: string;
+  projectorType: string;
+  embdDim: number;
+  fileSize: number;
+}
+
 export interface StoredModelInfo {
   path: string;
   name: string;
@@ -11,6 +20,8 @@ export interface StoredModelInfo {
   contextLength: number;
   tokenizer: string;
   fileSize: number;
+  embdDim: number;
+  mmproj: StoredMmprojInfo | null;
 }
 
 const PREF_NAME = 'model_registry';
@@ -55,6 +66,8 @@ export class ModelStore {
         const contextLengths = this.prefs.getSync('contextLengths', []) as number[];
         const tokenizers = this.prefs.getSync('tokenizers', []) as string[];
         const fileSizes = this.prefs.getSync('fileSizes', []) as number[];
+        const embdDims = this.prefs.getSync('embdDims', []) as number[];
+        const mmprojJsons = this.prefs.getSync('mmprojJsons', []) as string[];
         for (let index = 0; index < paths.length; index++) {
           models.push({
             path: paths[index],
@@ -64,7 +77,9 @@ export class ModelStore {
             parameters: parameters[index] || '未知',
             contextLength: contextLengths[index] || 0,
             tokenizer: tokenizers[index] || '未知',
-            fileSize: fileSizes[index] || 0
+            fileSize: fileSizes[index] || 0,
+            embdDim: embdDims[index] || 0,
+            mmproj: this.parseMmproj(mmprojJsons[index] || '')
           });
         }
         return models;
@@ -83,7 +98,9 @@ export class ModelStore {
         parameters: this.prefs.getSync('parameters', '未知') as string,
         contextLength: this.prefs.getSync('contextLength', 0) as number,
         tokenizer: this.prefs.getSync('tokenizer', '未知') as string,
-        fileSize: this.prefs.getSync('fileSize', 0) as number
+        fileSize: this.prefs.getSync('fileSize', 0) as number,
+        embdDim: 0,
+        mmproj: null
       }];
     } catch (error) {
       hilog.error(DOMAIN, TAG, '读取模型索引失败: %{public}s', String(error));
@@ -141,6 +158,8 @@ export class ModelStore {
     const contextLengths: number[] = [];
     const tokenizers: string[] = [];
     const fileSizes: number[] = [];
+    const embdDims: number[] = [];
+    const mmprojJsons: string[] = [];
     for (const model of models) {
       paths.push(model.path);
       names.push(model.name);
@@ -150,6 +169,8 @@ export class ModelStore {
       contextLengths.push(model.contextLength);
       tokenizers.push(model.tokenizer);
       fileSizes.push(model.fileSize);
+      embdDims.push(model.embdDim);
+      mmprojJsons.push(model.mmproj ? JSON.stringify(model.mmproj) : '');
     }
     try {
       await this.prefs.put('paths', paths);
@@ -160,6 +181,8 @@ export class ModelStore {
       await this.prefs.put('contextLengths', contextLengths);
       await this.prefs.put('tokenizers', tokenizers);
       await this.prefs.put('fileSizes', fileSizes);
+      await this.prefs.put('embdDims', embdDims);
+      await this.prefs.put('mmprojJsons', mmprojJsons);
       // Remove legacy single-model fields after the first list write.
       await this.prefs.delete('path');
       await this.prefs.delete('name');
@@ -173,6 +196,17 @@ export class ModelStore {
     } catch (error) {
       hilog.error(DOMAIN, TAG, '批量写入模型索引失败: %{public}s', String(error));
       throw new Error('批量写入模型索引失败: ' + String(error));
+    }
+  }
+
+  private parseMmproj(json: string): StoredMmprojInfo | null {
+    if (json.length === 0) {
+      return null;
+    }
+    try {
+      return JSON.parse(json) as StoredMmprojInfo;
+    } catch (error) {
+      return null;
     }
   }
 

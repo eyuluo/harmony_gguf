@@ -21,6 +21,7 @@
 | contextLength | number | 训练上下文长度 |
 | tokenizer | string | 分词器类型（bpe / sentencepiece / wordpiece / unigram / rwkv / plamo2） |
 | fileSize | number | 文件大小（字节） |
+| embdDim | number | 模型输入 embedding 维度（用于 mmproj 匹配） |
 
 ### 2.2 LoadConfig（加载参数）
 
@@ -28,7 +29,8 @@
 |------|------|------|------|
 | contextLength | number? | 模型默认 | 每槽位上下文长度（0 = 使用模型默认） |
 | threads | number? | 默认线程数 | 推理线程数 |
-| parallel | number? | 2 | 并发槽位数（同时进行的生成任务数） |
+| parallel | number? | 8 | 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个） |
+| mmprojPath | string? | 空 | mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态） |
 
 ### 2.3 GenerateParams（生成参数）
 
@@ -40,6 +42,7 @@
 | repeatPenalty | number? | 1.0 | 重复惩罚 |
 | maxTokens | number? | 512 | 最大生成长度 |
 | threads | number? | 0 | 线程数（0 = 默认） |
+| images | string[]? | 空 | 图片文件路径（多模态，需已加载 mmproj；空 = 纯文本） |
 
 ### 2.4 GenerateStats（生成统计）
 
@@ -80,7 +83,7 @@
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | host | string? | "127.0.0.1" | 监听地址（0.0.0.0 为局域网） |
-| port | number? | 8080 | 端口 |
+| port | number? | 5160 | 端口 |
 | apiKey | string? | 空 | 可选鉴权 Key（空 = 不鉴权） |
 
 ### 2.9 ServerInfo（Serve 状态）
@@ -91,6 +94,17 @@
 | port | number | 端口 |
 | lanAddress | string | 局域网访问地址（空 = 未开启局域网） |
 | running | boolean | 运行状态 |
+
+### 2.10 MmprojMetadata（mmproj 能力）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| architecture | string | 架构（恒为 "clip"） |
+| projectorType | string | 投影类型，如 mlp / ldp / qwen2vl |
+| embdDim | number | 投影输出维度（用于与模型匹配） |
+| hasVision | boolean | 是否支持视觉输入 |
+| hasAudio | boolean | 是否支持音频输入 |
+| fileSize | number | 文件大小（字节） |
 
 ## 3. 错误码
 
@@ -112,7 +126,8 @@
 | 接口 | 签名 | 返回 | 说明 |
 |------|------|------|------|
 | parseGgufMetadata | `(path: string) => ModelMetadata` | 元数据 | 解析 GGUF 元数据（仅读 vocab + 元数据，不加载权重） |
-| loadModel | `(path: string, config?: LoadConfig) => number` | modelId | 加载模型并返回句柄（单模型实例，恒为 1）；并发槽位按 `config.parallel` 分配 |
+| parseMmprojMetadata | `(path: string) => MmprojMetadata` | 能力 | 解析 mmproj 能力（视觉/音频），不加载权重 |
+| loadModel | `(path: string, config?: LoadConfig) => number` | modelId | 加载模型并返回句柄（单模型实例，恒为 1）；每池最大并发槽位数按 `config.parallel` 配置（软上限，槽位按需分配） |
 | unloadModel | `(modelId: number) => void` | 无 | 卸载模型、释放资源（先停止所有进行中的生成） |
 
 ### 4.2 推理
@@ -130,8 +145,8 @@
 - `stopped`：被 `stopGenerate` / `stopAllGenerations` 中止，`data` 为 `GenerateStats`。
 - `error`：出错，`data` 为 `GenerateError`。
 
-> 并发语义：`generate` 最多同时有 `LoadConfig.parallel` 个任务在执行；槽位已满时抛错（错误码 1005）。
-> 每个槽位独立维护 KV cache 与采样器；达到槽位上下文上限时自动滑动上下文窗口（context shift），不截断长对话。
+> 并发语义：每池最多同时有 `LoadConfig.parallel` 个任务在执行（软上限，槽位按需分配）；池满时抛错（错误码 1005）。
+> 每个槽位独立维护 KV cache 序列与采样器；达到槽位上下文软上限时自动滑动上下文窗口（context shift），不截断长对话。
 
 ### 4.3 本地 API 服务（Serve）
 

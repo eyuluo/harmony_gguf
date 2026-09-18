@@ -4,7 +4,7 @@ import { taskpool } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { AppState, ModelItem } from './AppState';
 import { ModelStore, StoredModelInfo } from './ModelStore';
-import { parseModelTask } from './ModelTasks';
+import { parseModelTask, parseMmprojTask } from './ModelTasks';
 
 const DOMAIN = 0x0000;
 const TAG = 'ModelService';
@@ -92,7 +92,9 @@ export class ModelService {
         parameters: parts[2],
         contextLength: Number(parts[3]),
         tokenizer: parts[4],
-        fileSize: Number(parts[5])
+        fileSize: Number(parts[5]),
+        embdDim: Number(parts[6]),
+        mmproj: null
       };
       await ModelStore.getInstance().init(context);
       await ModelStore.getInstance().saveModel(importedModel);
@@ -126,6 +128,122 @@ export class ModelService {
       }
       state.importing = false;
     }
+  }
+
+  async importMmproj(model: StoredModelInfo): Promise<void> {
+    const context = this.context!;
+    let sourceFd = -1;
+    let targetFd = -1;
+    let targetPath = '';
+    try {
+      const uris = await new picker.DocumentViewPicker(context).select({
+        maxSelectNumber: 1,
+        fileSuffixFilters: ['.gguf']
+      });
+      if (uris.length === 0) {
+        return;
+      }
+      const dir = context.filesDir + '/mmproj';
+      try {
+        fileIo.mkdirSync(dir);
+      } catch (error) {
+        hilog.info(DOMAIN, TAG, 'mmproj directory is ready: %{public}s', String(error));
+      }
+      const sourceFile = fileIo.openSync(uris[0], fileIo.OpenMode.READ_ONLY);
+      sourceFd = sourceFile.fd;
+      const originalName = sourceFile.name.length > 0 ? sourceFile.name : `mmproj_${Date.now()}.gguf`;
+      targetPath = `${dir}/${Date.now()}_${originalName}`;
+      const targetFile = fileIo.openSync(targetPath,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      targetFd = targetFile.fd;
+      await fileIo.copyFile(sourceFile.fd, targetFile.fd);
+      fileIo.closeSync(sourceFile);
+      sourceFd = -1;
+      fileIo.closeSync(targetFile);
+      targetFd = -1;
+
+      // 软校验：解析 mmproj 元数据，架构非 clip 视为无效
+      const parts = (await taskpool.execute(parseMmprojTask, targetPath) as string).split('|');
+      if (parts[0] !== 'clip') {
+        hilog.error(DOMAIN, TAG, 'import mmproj failed: not a valid mmproj');
+        fileIo.unlinkSync(targetPath);
+        return;
+      }
+
+      // 关联到模型并持久化
+      await ModelStore.getInstance().init(context);
+      await ModelStore.getInstance().saveModel({
+        path: model.path,
+        name: model.name,
+        architecture: model.architecture,
+        quantization: model.quantization,
+        parameters: model.parameters,
+        contextLength: model.contextLength,
+        tokenizer: model.tokenizer,
+        fileSize: model.fileSize,
+        embdDim: model.embdDim,
+        mmproj: {
+          path: targetPath,
+          name: originalName,
+          architecture: parts[0],
+          projectorType: parts[1],
+          embdDim: Number(parts[2]),
+          fileSize: Number(parts[3])
+        }
+      });
+      await this.refreshModels();
+    } catch (error) {
+      hilog.error(DOMAIN, TAG, 'import mmproj failed: %{public}s', String(error));
+    } finally {
+      if (sourceFd >= 0) {
+        try {
+          fileIo.closeSync(sourceFd);
+        } catch (closeError) {
+          hilog.error(DOMAIN, TAG, 'close source failed: %{public}s', String(closeError));
+        }
+      }
+      if (targetFd >= 0) {
+        try {
+          fileIo.closeSync(targetFd);
+        } catch (closeError) {
+          hilog.error(DOMAIN, TAG, 'close target failed: %{public}s', String(closeError));
+        }
+      }
+    }
+  }
+
+  async deleteMmproj(model: StoredModelInfo): Promise<void> {
+    const context = this.context!;
+    await ModelStore.getInstance().init(context);
+    await ModelStore.getInstance().saveModel({
+      path: model.path,
+      name: model.name,
+      architecture: model.architecture,
+      quantization: model.quantization,
+      parameters: model.parameters,
+      contextLength: model.contextLength,
+      tokenizer: model.tokenizer,
+      fileSize: model.fileSize,
+      embdDim: model.embdDim,
+      mmproj: null
+    });
+    await this.refreshModels();
+  }
+
+  async resolveMmproj(model: StoredModelInfo): Promise<string> {
+    const mmproj = model.mmproj;
+    if (mmproj === null) {
+      return '';
+    }
+    if (!this.isFileExists(mmproj.path)) {
+      await this.deleteMmproj(model);
+      return '';
+    }
+    if (model.embdDim > 0 && mmproj.embdDim > 0 && model.embdDim !== mmproj.embdDim) {
+      await this.deleteMmproj(model);
+      return '';
+    }
+    return mmproj.path;
   }
 
   async deleteRegistry(model: StoredModelInfo): Promise<void> {

@@ -59,7 +59,7 @@
 |------|------|------|
 | LoadConfig | contextLength | 每槽位上下文长度（0 = 使用模型默认） |
 | | threads | 推理线程数 |
-| | parallel | 每个槽位池（NAPI / Serve）的槽位数，默认 2（总序列数 = 2 × parallel） |
+| | parallel | 每池最大并发槽位数（软上限），默认 8（总逻辑槽位数 = 2 × parallel，KV 统一缓冲按需分配） |
 | ModelMetadata | architecture | 架构，如 llama / qwen |
 | | parameters | 参数量，如 "7B" |
 | | quantization | 量化等级，如 "Q4_K_M" |
@@ -106,7 +106,7 @@
 - **主线程（ArkTS）**：仅负责 UI 渲染与状态更新。
 - **推理线程（C++，每个生成任务一个独立 pthread）**：执行模型推理，避免阻塞 UI。
 - **回调机制**：NAPI `napi_threadsafe_function` 将 token 从推理线程安全回调到 JS 线程。
-- **多槽位并发**：单模型实例可同时处理多个生成任务，槽位按来源分为两个独立池——NAPI 直接调用与 Serve HTTP 服务各 `LoadConfig.parallel` 个（默认各 2，互不抢占）；每个任务独占一个 KV cache 序列槽位（seq_id）与独立采样器；`llama_decode` 非线程安全，用互斥锁保护，请求间交错执行。
+- **多槽位并发**：单模型实例可同时处理多个生成任务，槽位按来源分为两个独立池——NAPI 直接调用与 Serve HTTP 服务各 `LoadConfig.parallel` 个（默认各 8，软上限、按需分配，互不抢占）；启用 `kv_unified` 统一 KV 缓冲，seq_id 按需分配（上限 `LLAMA_MAX_SEQ`）；每个任务独占一个 KV cache 序列槽位（seq_id）与独立采样器；`llama_decode` 非线程安全，用互斥锁保护，请求间交错执行。
 
 ```
 ArkTS UI ──NAPI调用──►  C++ 推理线程 ──线程安全函数──►  JS 回调(逐 token)

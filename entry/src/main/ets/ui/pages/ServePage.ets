@@ -239,7 +239,7 @@ export struct ServePage {
       }
       this.paramRow('加载 Context', configValue(this.appState.loadedConfig?.contextLength ?? 0))
       this.paramRow('加载 Threads', configValue(this.appState.loadedConfig?.threads ?? 0))
-      this.paramRow('加载 Parallel', configValue(this.appState.loadedConfig?.parallel ?? 2))
+      this.paramRow('加载 Parallel', configValue(this.appState.loadedConfig?.parallel ?? 8))
       this.paramRow('Max tokens', String(this.appState.maxTokens))
       this.paramRow('Temperature', String(this.appState.temperature))
       this.paramRow('Top-K', String(this.appState.topK))

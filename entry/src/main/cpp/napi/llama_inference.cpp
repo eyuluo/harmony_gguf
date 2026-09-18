@@ -9,6 +9,9 @@
 
 #include "engine_state.h"
 #include "llama.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
+#include "stb/stb_image.h"
 
 namespace inference {
 
@@ -106,36 +109,125 @@ GenResult RunGeneration(
     llama_sampler_chain_add(smpl.get(), llama_sampler_init_top_p(params.top_p, 1));
     llama_sampler_chain_add(smpl.get(), llama_sampler_init_dist(static_cast<uint32_t>(llama_time_us())));
 
-    // 分词
-    const int32_t n_prompt = -llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
-                                             nullptr, 0, true, true);
-    fprintf(stderr, "[gen] n_prompt=%d\n", n_prompt);
-    if (n_prompt <= 0) {
-        return GenResult::Failed;
-    }
-
-    std::vector<llama_token> prompt_tokens(static_cast<size_t>(n_prompt));
-    if (llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
-                       prompt_tokens.data(), n_prompt, true, true) < 0) {
-        return GenResult::Failed;
-    }
+    const int64_t t_start = llama_time_us();
+    int64_t t_first = 0;
+    bool first_token = true;
+    bool stopped = false;
+    llama_token new_token_id = LLAMA_TOKEN_NULL;
 
     const uint32_t slot_ctx = state.slot_context();
-    if (slot_ctx > 0 && static_cast<uint32_t>(n_prompt) > slot_ctx) {
-        return GenResult::Failed;
-    }
-
     llama_memory_t mem = llama_get_memory(ctx);
     const bool can_shift = mem != nullptr && llama_memory_can_shift(mem);
 
-    out_stats.prompt_tokens = n_prompt;
+    int32_t n_prompt = 0;
+    llama_pos n_past = 0;
 
-    // prompt batch：一次性 decode 全部 prompt token（pos 0..n_prompt-1）
-    BatchGuard prompt_batch(n_prompt);
-    for (int32_t i = 0; i < n_prompt; i++) {
-        prompt_batch.get().token[i] = prompt_tokens[i];
+    if (!params.images.empty()) {
+        // === 多模态：mtmd tokenize + 逐 chunk decode（prompt 含图片）===
+        mtmd_context * mctx = state.mtmd_ctx();
+        if (mctx == nullptr) {
+            return GenResult::Failed;
+        }
+
+        std::vector<mtmd_bitmap *> bitmaps;
+        bitmaps.reserve(params.images.size());
+        for (const auto & path : params.images) {
+            int nx = 0;
+            int ny = 0;
+            int nc = 0;
+            unsigned char * data = stbi_load(path.c_str(), &nx, &ny, &nc, 3);
+            if (data == nullptr) {
+                for (auto * b : bitmaps) {
+                    mtmd_bitmap_free(b);
+                }
+                return GenResult::Failed;
+            }
+            bitmaps.push_back(mtmd_bitmap_init(static_cast<uint32_t>(nx), static_cast<uint32_t>(ny), data));
+            stbi_image_free(data);
+        }
+
+        // prompt 未含媒体标记时，在最前为每张图片补一个标记
+        std::string prompt = params.prompt;
+        if (prompt.find(mtmd_default_marker()) == std::string::npos) {
+            std::string prefix;
+            for (size_t i = 0; i < bitmaps.size(); i++) {
+                prefix += mtmd_default_marker();
+            }
+            prompt = prefix + prompt;
+        }
+
+        mtmd_input_text text{ prompt.c_str(), prompt.size(), true, true };
+        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+        int32_t res = mtmd_tokenize(mctx, chunks, &text, bitmaps.data(), bitmaps.size());
+        if (res != 0) {
+            mtmd_input_chunks_free(chunks);
+            for (auto * b : bitmaps) {
+                mtmd_bitmap_free(b);
+            }
+            return GenResult::Failed;
+        }
+
+        out_stats.prompt_tokens = static_cast<int32_t>(mtmd_helper_get_n_tokens(chunks));
+
+        const int32_t n_batch = static_cast<int32_t>(llama_n_batch(ctx));
+        {
+            std::lock_guard<std::mutex> lock(state.decode_mutex());
+            state.SetActiveStopFlag(stop_flag.get());
+            res = mtmd_helper_eval_chunks(mctx, ctx, chunks, 0, seq_id, n_batch, true, &n_past);
+            state.ClearActiveStopFlag();
+        }
+
+        mtmd_input_chunks_free(chunks);
+        for (auto * b : bitmaps) {
+            mtmd_bitmap_free(b);
+        }
+
+        if (res != 0) {
+            if (stop_requested()) {
+                return GenResult::Aborted;
+            }
+            return GenResult::Failed;
+        }
+    } else {
+        // === 纯文本：tokenize + 一次性 decode prompt（pos 0..n_prompt-1）===
+        n_prompt = -llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
+                                   nullptr, 0, true, true);
+        if (n_prompt <= 0) {
+            return GenResult::Failed;
+        }
+
+        std::vector<llama_token> prompt_tokens(static_cast<size_t>(n_prompt));
+        if (llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
+                           prompt_tokens.data(), n_prompt, true, true) < 0) {
+            return GenResult::Failed;
+        }
+
+        if (slot_ctx > 0 && static_cast<uint32_t>(n_prompt) > slot_ctx) {
+            return GenResult::Failed;
+        }
+
+        out_stats.prompt_tokens = n_prompt;
+
+        BatchGuard prompt_batch(n_prompt);
+        for (int32_t i = 0; i < n_prompt; i++) {
+            prompt_batch.get().token[i] = prompt_tokens[i];
+        }
+        FillBatchSeq(prompt_batch.get(), seq_id, n_prompt, 0, true);
+
+        {
+            std::lock_guard<std::mutex> lock(state.decode_mutex());
+            state.SetActiveStopFlag(stop_flag.get());
+            const int32_t rc = llama_decode(ctx, prompt_batch.get());
+            state.ClearActiveStopFlag();
+            if (rc != 0) {
+                if (stop_requested()) {
+                    return GenResult::Aborted;
+                }
+                return GenResult::Failed;
+            }
+        }
+        n_past = n_prompt;
     }
-    FillBatchSeq(prompt_batch.get(), seq_id, n_prompt, 0, true);
 
     // 单 token batch：生成循环复用
     BatchGuard one(1);
@@ -144,20 +236,13 @@ GenResult RunGeneration(
     one.get().seq_id[0][0] = seq_id;
     one.get().logits[0] = 1;
 
-    const int64_t t_start = llama_time_us();
-    int64_t t_first = 0;
-    bool first_token = true;
-    bool stopped = false;
-    llama_token new_token_id = LLAMA_TOKEN_NULL;
-    llama_pos n_past = 0;
-
     for (int32_t i = 0; i < params.max_tokens; i++) {
         if (stop_requested()) {
             stopped = true;
             break;
         }
 
-        llama_batch * cur = (n_past == 0) ? &prompt_batch.get() : &one.get();
+        llama_batch * cur = &one.get();
 
         int32_t rc = 0;
         {
@@ -199,7 +284,7 @@ GenResult RunGeneration(
 
         llama_sampler_accept(smpl.get(), new_token_id);
 
-        n_past += (n_past == 0) ? n_prompt : 1;
+        n_past += 1;
         one.get().token[0] = new_token_id;
         one.get().pos[0] = n_past;
 

@@ -10,7 +10,6 @@ export struct BottomNav {
       this.navItem($r('app.media.ic_chat'), this.chatLabel(), 0)
       this.navItem($r('app.media.ic_model'), '模型', 1)
       this.navItem($r('app.media.ic_server'), '服务', 2)
-      this.navItem($r('app.media.ic_settings'), '设置', 3)
     }
     .width('100%')
     .height(72)
