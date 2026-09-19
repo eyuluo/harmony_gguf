@@ -1,21 +1,36 @@
-name: Runner Test
+name: Harmony-GGUF CI
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmony-gguf-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test-runner:
+  verify:
+    name: Install, lint and build
     runs-on: [self-hosted, Windows, X64, ohos-sdk]
+    timeout-minutes: 45
+    env:
+      CODELINTER_HOME: D:\Tools\EditTheCode\command-line-tools
+      HVIGORW: D:\Tools\EditTheCode\command-line-tools\bin\hvigorw.bat
+      OHOS_SDK_HOME: D:\Tools\EditTheCode\command-line-tools\sdk\default
 
     steps:
-      - name: Check environment
-        shell: powershell
-        run: |
-          Write-Host "Runner: $env:RUNNER_NAME"
-          Write-Host "OS: $env:RUNNER_OS"
-          Write-Host "Architecture: $env:RUNNER_ARCH"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Check tools
+      - name: Check toolchain
         shell: powershell
         run: |
           git --version
@@ -24,9 +39,40 @@ jobs:
           cmake --version
           ohpm --version
           hvigorw --version
+          if (-not (Test-Path -LiteralPath $env:HVIGORW -PathType Leaf)) {
+            throw "Hvigor wrapper was not found: $env:HVIGORW"
+          }
+          if (-not (Test-Path -LiteralPath $env:CODELINTER_HOME -PathType Container)) {
+            throw "CodeLinter home was not found: $env:CODELINTER_HOME"
+          }
+          if (-not (Test-Path -LiteralPath $env:OHOS_SDK_HOME -PathType Container)) {
+            throw "OHOS SDK home was not found: $env:OHOS_SDK_HOME"
+          }
 
-      - name: Check HarmonyOS SDK
+      - name: Install dependencies
         shell: powershell
-        run: |
-          Write-Host "DEVECO_HOME=$env:DEVECO_HOME"
-          Write-Host "OHOS_SDK_HOME=$env:OHOS_SDK_HOME"
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-install.ps1
+
+      - name: Run CodeLinter
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-lint.ps1
+
+      - name: Build HAP
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci-build.ps1
+
+      - name: Upload CI reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports-${{ github.run_number }}
+          path: reports/ci/
+          if-no-files-found: warn
+
+      - name: Upload HAP artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hap-${{ github.run_number }}
+          path: entry/build/**/*.hap
+          if-no-files-found: error
