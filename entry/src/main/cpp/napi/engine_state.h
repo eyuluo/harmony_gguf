@@ -27,6 +27,7 @@ struct LoadConfig {
     uint32_t context_length = 0; // 0 = 使用模型默认
     int32_t  threads = 0;        // 0 = 使用默认线程数
     uint32_t parallel = 8;       // 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个）
+    bool vocab_only = false;
     std::string mmproj_path;     // mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态）
 };
 
