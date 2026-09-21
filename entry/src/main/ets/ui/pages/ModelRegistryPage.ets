@@ -139,33 +139,36 @@ export struct ModelRegistryPage {
   @Builder
   modelCard(item: ModelItem) {
     Column() {
-      Text(item.info.name)
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#FFFFFF')
-        .width('100%')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row() {
+        Text(item.info.name)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .textAlign(TextAlign.Start)
+        Text(item.info.path)
+          .fontSize(12)
+          .fontColor('#6C6C6C')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .textAlign(TextAlign.End)
+          .constraintSize({ maxWidth: '45%' })
+          .margin({ left: 12 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
       if (item.exists) {
         Flex({ wrap: FlexWrap.Wrap }) {
           this.tag(item.info.architecture)
-          this.tag(item.info.quantization)
           this.tag(item.info.parameters)
+          this.tag(item.info.quantization)
+          this.tag(formatSize(item.info.fileSize))
+          this.tag(`上下文 ${item.info.contextLength}`)
         }
         .width('100%')
-        .margin({ top: 12, bottom: 4 })
-        Text(`上下文 ${item.info.contextLength} · tokenizer ${item.info.tokenizer} · ${formatSize(item.info.fileSize)}`)
-          .fontSize(12)
-          .fontColor('#6C6C6C')
-          .width('100%')
-          .margin({ bottom: 5 })
-        Text(item.info.path)
-          .fontSize(11)
-          .fontColor('#5F6068')
-          .width('100%')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ bottom: 16 })
+        .margin({ top: 12, bottom: 12 })
         Row() {
           if (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0) {
             Row() {
@@ -208,7 +211,7 @@ export struct ModelRegistryPage {
           this.mmprojLayer(item)
         }
       } else {
-        Text('未在该位置找到该模型')
+        Text('模型未找到')
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor('#E05858')
@@ -236,30 +239,57 @@ export struct ModelRegistryPage {
     if (item.info.mmproj !== null) {
       Column() {
         Divider().color('#2C2D33').margin({ top: 14, bottom: 12 })
-        Text(`投影器：${item.info.mmproj.name}`)
-          .fontSize(13)
-          .fontColor('#C9C9CF')
-          .width('100%')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(item.info.mmproj.path)
-          .fontSize(10)
-          .fontColor('#5F6068')
-          .width('100%')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 2 })
-        Text(`${item.info.mmproj.projectorType} · embd ${item.info.mmproj.embdDim} · ${formatSize(item.info.mmproj.fileSize)}`)
-          .fontSize(11)
-          .fontColor('#6C6C6C')
-          .width('100%')
-          .margin({ top: 4, bottom: 10 })
         Row() {
-          Button('选择投影器')
-            .onClick(() => { this.modelService.importMmproj(item.info); })
-            .backgroundColor('#25262B')
-            .fontColor('#A0A0A0')
-            .borderRadius(10)
+          Text(item.info.mmproj.name)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FFFFFF')
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .textAlign(TextAlign.Start)
+          Text(item.info.mmproj.path)
+            .fontSize(11)
+            .fontColor('#6C6C6C')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .textAlign(TextAlign.End)
+            .constraintSize({ maxWidth: '45%' })
+            .margin({ left: 12 })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        if (item.mmprojExists) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            this.tag(item.info.mmproj.architecture)
+            this.tag(item.info.mmproj.projectorType)
+            this.tag(`embd ${item.info.mmproj.embdDim}`)
+            this.tag(formatSize(item.info.mmproj.fileSize))
+          }
+          .width('100%')
+          .margin({ top: 10 })
+        } else {
+          Text('投影器未找到')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#E05858')
+            .margin({ top: 10 })
+        }
+        Row() {
+          if (item.mmprojSelected) {
+            Button('已选择投影器')
+              .onClick(() => { this.modelService.setMmprojSelected(item.info, false); })
+              .backgroundColor('#25352A')
+              .fontColor('#A8DDB5')
+              .borderRadius(10)
+          } else {
+            Button('选择投影器')
+              .enabled(item.mmprojExists)
+              .onClick(() => { this.modelService.setMmprojSelected(item.info, true); })
+              .backgroundColor(item.mmprojExists ? '#6C5CE7' : '#2C2D33')
+              .fontColor(item.mmprojExists ? '#FFFFFF' : '#5F6068')
+              .borderRadius(10)
+          }
           Button('删除投影器')
             .onClick(() => { this.modelService.deleteMmproj(item.info); })
             .margin({ left: 10 })
@@ -267,6 +297,7 @@ export struct ModelRegistryPage {
             .fontColor('#A0A0A0')
             .borderRadius(10)
         }
+        .margin({ top: 12 })
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 2, bottom: 12 })

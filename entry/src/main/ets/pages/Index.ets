@@ -6,6 +6,7 @@ import { InferenceService } from '../service/InferenceService';
 import { ModelService } from '../service/ModelService';
 import { ServeService } from '../service/ServeService';
 import { SettingsService } from '../service/SettingsService';
+import { SessionStore } from '../service/SessionStore';
 import { HeaderBar } from '../ui/components/HeaderBar';
 import { BottomNav } from '../ui/components/BottomNav';
 import { SideNav } from '../ui/components/SideNav';
@@ -45,6 +46,8 @@ struct Index {
     try {
       await this.settings.restoreSettings(context);
       await this.modelService.refreshModels();
+      await SessionStore.getInstance().init(context);
+      await this.inference.restoreSessions();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'initialize failed: %{public}s', String(error));
     }
@@ -160,16 +163,25 @@ struct Index {
         hilog.warn(DOMAIN, TAG, 'save settings failed: %{public}s', String(error));
       }
     }
-    const mmprojPath = await this.modelService.resolveMmproj(model);
-    const config: LoadConfig = {
-      contextLength: this.appState.contextLength,
-      threads: this.appState.threads,
-      parallel: this.appState.parallel,
-      mmprojPath: mmprojPath
-    };
-    await this.inference.loadModel(model, config);
-    if (this.appState.modelId > 0) {
-      this.activeTab = this.appState.returnTab;
+    try {
+      let mmprojPath = '';
+      if (this.modelService.isMmprojSelected(model)) {
+        mmprojPath = await this.modelService.resolveMmproj(model);
+      }
+      const config: LoadConfig = {
+        contextLength: this.appState.contextLength,
+        threads: this.appState.threads,
+        parallel: this.appState.parallel,
+        mmprojPath: mmprojPath
+      };
+      await this.inference.loadModel(model, config);
+      if (this.appState.modelId > 0) {
+        this.activeTab = this.appState.returnTab;
+      }
+    } catch (error) {
+      this.appState.loadFailed = true;
+      const message = (error as Error).message.length > 0 ? (error as Error).message : '加载失败';
+      this.getUIContext().getPromptAction().showToast({ message: message });
     }
   }
 }

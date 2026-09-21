@@ -7,6 +7,7 @@ export interface SessionRecord {
   title: string;
   createdAt: number;
   updatedAt: number;
+  pinned: boolean;
 }
 
 // 消息记录
@@ -16,6 +17,12 @@ export interface MessageRecord {
   role: string;
   content: string;
   createdAt: number;
+}
+
+// 持久化消息（仅文本内容）
+export interface PersistMessage {
+  role: string;
+  content: string;
 }
 
 // 消息角色
@@ -57,7 +64,8 @@ export class SessionStore {
       'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
       'title TEXT NOT NULL, ' +
       'created_at INTEGER NOT NULL, ' +
-      'updated_at INTEGER NOT NULL)'
+      'updated_at INTEGER NOT NULL, ' +
+      'pinned INTEGER NOT NULL DEFAULT 0)'
     );
     await this.store!.executeSql(
       'CREATE TABLE IF NOT EXISTS message (' +
@@ -67,6 +75,12 @@ export class SessionStore {
       'content TEXT NOT NULL, ' +
       'created_at INTEGER NOT NULL)'
     );
+    // 旧库迁移：补 pinned 列（已存在则忽略）
+    try {
+      await this.store!.executeSql('ALTER TABLE session ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+    } catch (error) {
+      // 列已存在，忽略
+    }
   }
 
   // 创建会话，返回会话 id
@@ -91,7 +105,8 @@ export class SessionStore {
         id: resultSet.getLong(resultSet.getColumnIndex('id')),
         title: resultSet.getString(resultSet.getColumnIndex('title')),
         createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
-        updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at'))
+        updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
+        pinned: resultSet.getLong(resultSet.getColumnIndex('pinned')) !== 0
       });
     }
     resultSet.close();
@@ -165,5 +180,38 @@ export class SessionStore {
     const predicates = new relationalStore.RdbPredicates('message');
     predicates.equalTo('session_id', sessionId);
     await this.store!.delete(predicates);
+  }
+
+  // 持久化会话：按内存会话 id 写入（不存在则创建），并全量替换其消息
+  async persistSession(id: number, title: string, messages: PersistMessage[], pinned: boolean): Promise<void> {
+    const now = Date.now();
+    const sessionPredicates = new relationalStore.RdbPredicates('session');
+    sessionPredicates.equalTo('id', id);
+    const resultSet = await this.store!.query(sessionPredicates);
+    const exists = resultSet.goToNextRow();
+    resultSet.close();
+
+    if (exists) {
+      const values: relationalStore.ValuesBucket = {
+        'title': title.length > 0 ? title : '新会话',
+        'updated_at': now,
+        'pinned': pinned ? 1 : 0
+      };
+      await this.store!.update(values, sessionPredicates);
+    } else {
+      const values: relationalStore.ValuesBucket = {
+        'id': id,
+        'title': title.length > 0 ? title : '新会话',
+        'created_at': now,
+        'updated_at': now,
+        'pinned': pinned ? 1 : 0
+      };
+      await this.store!.insert('session', values);
+    }
+
+    await this.clearMessages(id);
+    for (const message of messages) {
+      await this.addMessage(id, message.role, message.content);
+    }
   }
 }
