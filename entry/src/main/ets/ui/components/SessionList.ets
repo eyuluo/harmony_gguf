@@ -7,8 +7,7 @@ export struct SessionList {
   @ObjectLink appState: AppState;
   onSelect: (id: number) => void = (id: number) => {};
   private inference: InferenceService = InferenceService.getInstance();
-  @State renamingId: number = 0;
-  @State renameText: string = '';
+  @State expandedId: number = 0;
   @State pendingDeleteId: number = 0;
 
   build() {
@@ -94,27 +93,13 @@ export struct SessionList {
         .borderRadius(2)
       Column() {
         Row() {
-          if (this.renamingId === session.id) {
-            TextInput({ text: this.renameText })
-              .layoutWeight(1)
-              .height(32)
-              .fontSize(15)
-              .fontColor('#FFFFFF')
-              .backgroundColor('#2C2D33')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8 })
-              .onChange((value: string) => { this.renameText = value; })
-              .onSubmit(() => this.commitRename(session.id))
-              .defaultFocus(true)
-          } else {
-            Text(session.title)
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.appState.activeSessionId === session.id ? '#FFFFFF' : '#C2C2C8')
-              .layoutWeight(1)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }
+          Text(session.title)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.appState.activeSessionId === session.id ? '#FFFFFF' : '#C2C2C8')
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (session.status !== 'idle') {
             Text(this.statusLabel(session.status))
               .fontSize(10)
@@ -124,16 +109,11 @@ export struct SessionList {
               .padding({ left: 6, right: 6, top: 2, bottom: 2 })
               .margin({ left: 8 })
           }
-          Button('···')
-            .bindMenu([
-              { value: '持久化', action: () => this.persist(session) },
-              { value: '重命名', action: () => this.beginRename(session) },
-              { value: session.pinned ? '取消置顶' : '置顶', action: () => this.inference.togglePin(session.id) },
-              { value: '删除', action: () => { this.pendingDeleteId = session.id; } }
-            ])
-            .width(34)
-            .height(28)
-            .fontSize(16)
+          Button(this.expandedId === session.id ? '收起' : '⋮')
+            .onClick(() => this.toggleExpand(session.id))
+            .width(30)
+            .height(26)
+            .fontSize(14)
             .backgroundColor('#00000000')
             .fontColor('#A0A0A0')
             .margin({ left: 6 })
@@ -155,6 +135,34 @@ export struct SessionList {
         }
         .width('100%')
         .margin({ top: 4 })
+
+        if (this.expandedId === session.id) {
+          Row() {
+            if (session.status === SESSION_RUNNING || session.status === SESSION_QUEUED) {
+              Button('停止推理')
+                .onClick(() => this.inference.stopGeneration(session.id))
+                .backgroundColor('#2C2D33')
+                .fontColor('#B9B1FF')
+                .borderRadius(10)
+                .fontSize(12)
+            }
+            Button(session.pinned ? '取消置顶' : '置顶')
+              .onClick(() => this.inference.togglePin(session.id))
+              .margin({ left: 8 })
+              .backgroundColor('#2C2D33')
+              .fontColor('#A0A0A0')
+              .borderRadius(10)
+              .fontSize(12)
+            Button('删除')
+              .onClick(() => { this.pendingDeleteId = session.id; })
+              .margin({ left: 8 })
+              .backgroundColor('#2C2D33')
+              .fontColor('#E58C8C')
+              .borderRadius(10)
+              .fontSize(12)
+          }
+          .margin({ top: 8 })
+        }
       }
       .layoutWeight(1)
     }
@@ -181,21 +189,8 @@ export struct SessionList {
     this.onSelect(id);
   }
 
-  private beginRename(session: Session): void {
-    this.renamingId = session.id;
-    this.renameText = session.title;
-  }
-
-  private commitRename(id: number): void {
-    const title = this.renameText.trim();
-    if (title.length > 0) {
-      this.inference.renameSession(id, title);
-    }
-    this.renamingId = 0;
-  }
-
-  private persist(session: Session): void {
-    this.inference.persistSession(session.id);
+  private toggleExpand(id: number): void {
+    this.expandedId = this.expandedId === id ? 0 : id;
   }
 
   private statusLabel(status: string): string {

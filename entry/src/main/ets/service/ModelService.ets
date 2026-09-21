@@ -33,42 +33,9 @@ export class ModelService {
     const stored = ModelStore.getInstance().getModels();
     const items: ModelItem[] = [];
     for (const model of stored) {
-      items.push({
-        info: model,
-        exists: this.fileExists(model.path),
-        mmprojExists: model.mmproj !== null && this.fileExists(model.mmproj.path),
-        mmprojSelected: false
-      });
+      items.push({ info: model, exists: this.isFileExists(model.path) });
     }
     state.models = items;
-  }
-
-  isMmprojSelected(model: StoredModelInfo): boolean {
-    const state = this.state!;
-    for (const item of state.models) {
-      if (item.info.path === model.path) {
-        return item.mmprojSelected;
-      }
-    }
-    return false;
-  }
-
-  setMmprojSelected(model: StoredModelInfo, selected: boolean): void {
-    const state = this.state!;
-    const next: ModelItem[] = [];
-    for (const item of state.models) {
-      if (item.info.path === model.path) {
-        next.push({
-          info: item.info,
-          exists: item.exists,
-          mmprojExists: item.mmprojExists,
-          mmprojSelected: selected
-        });
-      } else {
-        next.push(item);
-      }
-    }
-    state.models = next;
   }
 
   async importModel(): Promise<void> {
@@ -268,8 +235,9 @@ export class ModelService {
     if (mmproj === null) {
       return '';
     }
-    if (!this.fileExists(mmproj.path)) {
-      throw new Error('投影器文件不存在');
+    if (!this.isFileExists(mmproj.path)) {
+      await this.deleteMmproj(model);
+      return '';
     }
     if (model.embdDim > 0 && mmproj.embdDim > 0 && model.embdDim !== mmproj.embdDim) {
       await this.deleteMmproj(model);
@@ -293,7 +261,7 @@ export class ModelService {
     await this.refreshModels();
   }
 
-  fileExists(path: string): boolean {
+  private isFileExists(path: string): boolean {
     try {
       return fileIo.accessSync(path);
     } catch (error) {
