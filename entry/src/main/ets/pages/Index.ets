@@ -181,7 +181,11 @@ struct Index {
     } catch (error) {
       this.appState.loadFailed = true;
       const message = (error as Error).message.length > 0 ? (error as Error).message : '加载失败';
-      this.getUIContext().getPromptAction().showToast({ message: message });
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: message });
+      } catch (toastError) {
+        hilog.error(DOMAIN, TAG, 'show toast failed: %{public}s', String(toastError));
+      }
     }
   }
 }

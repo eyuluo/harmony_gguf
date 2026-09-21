@@ -14,7 +14,7 @@ import {
 } from './AppState';
 import { StoredModelInfo } from './ModelStore';
 import { loadModelTask } from './ModelTasks';
-import { SessionStore } from './SessionStore';
+import { SessionStore, PersistMessage } from './SessionStore';
 
 const DOMAIN = 0x0000;
 const TAG = 'InferenceService';
@@ -138,35 +138,39 @@ export class InferenceService {
 
   async restoreSessions(): Promise<void> {
     const store = SessionStore.getInstance();
-    const records = await store.listSessions();
-    const sessions: Session[] = [];
-    let maxId = 0;
-    for (const rec of records) {
-      const messageRecords = await store.listMessages(rec.id);
-      const messages: SessionMessage[] = [];
-      for (const m of messageRecords) {
-        messages.push({ role: m.role, content: m.content, attachments: [] });
+    try {
+      const records = await store.listSessions();
+      const sessions: Session[] = [];
+      let maxId = 0;
+      for (const rec of records) {
+        const messageRecords = await store.listMessages(rec.id);
+        const messages: SessionMessage[] = [];
+        for (const m of messageRecords) {
+          messages.push({ role: m.role, content: m.content, attachments: [] });
+        }
+        sessions.push({
+          id: rec.id,
+          title: rec.title,
+          messages: messages,
+          status: SESSION_IDLE,
+          updatedAt: rec.updatedAt,
+          pinned: rec.pinned,
+          persisted: true,
+          lastStats: null,
+          requestId: 0,
+          pendingPrompt: ''
+        });
+        if (rec.id > maxId) {
+          maxId = rec.id;
+        }
       }
-      sessions.push({
-        id: rec.id,
-        title: rec.title,
-        messages: messages,
-        status: SESSION_IDLE,
-        updatedAt: rec.updatedAt,
-        pinned: rec.pinned,
-        persisted: true,
-        lastStats: null,
-        requestId: 0,
-        pendingPrompt: ''
-      });
-      if (rec.id > maxId) {
-        maxId = rec.id;
-      }
+      const state = this.state!;
+      state.sessions = sessions;
+      state.nextSessionId = maxId + 1;
+      state.activeSessionId = sessions.length > 0 ? sessions[0].id : 0;
+    } catch (error) {
+      hilog.error(DOMAIN, TAG, 'restore sessions failed: %{public}s', String(error));
     }
-    const state = this.state!;
-    state.sessions = sessions;
-    state.nextSessionId = maxId + 1;
-    state.activeSessionId = sessions.length > 0 ? sessions[0].id : 0;
   }
 
   async persistSession(sessionId: number): Promise<void> {
@@ -187,7 +191,7 @@ export class InferenceService {
   }
 
   private async writeSessionToStore(session: Session): Promise<void> {
-    const messages: { role: string, content: string }[] = [];
+    const messages: PersistMessage[] = [];
     for (const m of session.messages) {
       messages.push({ role: m.role, content: m.content });
     }
