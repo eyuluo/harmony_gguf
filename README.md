@@ -1,6 +1,6 @@
 # Harmony-GGUF
 
-#项目开发中，预计9月开发完毕
+#项目开发中，大体上是完成了，alpha测试推理正常，准备收尾.ing
 
 面向 HarmonyOS（NEXT / 原生 ArkTS）的本地 GGUF 大模型运行器。纯离线运行，数据不出设备，让鸿蒙设备像运行聊天应用一样在本机运行开源大模型。
 
@@ -25,25 +25,6 @@
 | 推理引擎 | C/C++（移植 llama.cpp） | GGUF 解析、tokenizer、采样、KV Cache |
 | Serve 服务 | C/C++（cpp-httplib） | HTTP 路由、OpenAI 兼容 API、SSE 流式 |
 
-MVP 阶段仅 CPU 推理；NPU/GPU 加速属于 P2。
-
-## 目录结构
-
-```
-Harmony_gguf/
-├── AppScope/            # 应用级配置（app.json5、资源）
-├── entry/               # 主模块（hap）
-│   └── src/main/
-│       ├── ets/         # ArkTS 代码（entryability、pages）
-│       ├── cpp/         # C++ 代码（napi_init.cpp、CMakeLists.txt、types/）
-│       └── resources/   # 资源文件
-├── hvigor/              # hvigor 构建配置
-├── docs/                # PRD / MVP / TDD 设计文档
-├── build-profile.json5  # 构建配置（SDK 26.0.0，HarmonyOS）
-└── oh-package.json5     # 依赖声明
-```
-
-业务代码最终按 `docs/TDD.md` 组织为 `ui/`、`service/`、`registry/`（ArkTS）与 `napi/`、`engine/`、`serve/`、`common/`（C++）。
 
 ## 快速开始
 
