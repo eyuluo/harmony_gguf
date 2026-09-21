@@ -1,4 +1,11 @@
-import { AppState, Session, SESSION_RUNNING, SESSION_QUEUED, SESSION_FAILED, SESSION_STOPPED } from '../../service/AppState';
+import {
+  AppState,
+  Session,
+  SESSION_RUNNING,
+  SESSION_QUEUED,
+  SESSION_FAILED,
+  SESSION_STOPPED
+} from '../../service/AppState';
 import { InferenceService } from '../../service/InferenceService';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -111,14 +118,15 @@ export struct SessionList {
               .padding({ left: 6, right: 6, top: 2, bottom: 2 })
               .margin({ left: 8 })
           }
-          Button(this.expandedId === session.id ? '收起' : '...')
-            .onClick(() => this.toggleExpand(session.id))
+          Text(this.expandedId === session.id ? '收起' : '...')
+            .fontSize(this.expandedId === session.id ? 13 : 20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+            .textAlign(TextAlign.Center)
             .width(30)
             .height(26)
-            .fontSize(14)
-            .backgroundColor('#00000000')
-            .fontColor('#A0A0A0')
             .margin({ left: 6 })
+            .onClick(() => this.toggleExpand(session.id))
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
@@ -140,21 +148,15 @@ export struct SessionList {
 
           if (this.expandedId === session.id) {
             Flex({ wrap: FlexWrap.Wrap }) {
-            if (session.status === SESSION_RUNNING || session.status === SESSION_QUEUED) {
-              Button('停止推理')
-                .onClick(() => this.inference.stopGeneration(session.id))
+            if (!session.persistent) {
+              Button('持久化')
+                .onClick(() => this.inference.enablePersistence(session.id))
+                .margin({ left: 8 })
                 .backgroundColor('#2C2D33')
-                .fontColor('#B9B1FF')
+                .fontColor('#A0A0A0')
                 .borderRadius(10)
                 .fontSize(12)
             }
-            Button(session.persistent ? '取消持久化' : '持久化')
-              .onClick(() => this.inference.setPersistent(session.id, !session.persistent))
-              .margin({ left: 8 })
-              .backgroundColor('#2C2D33')
-              .fontColor(session.persistent ? '#B9B1FF' : '#A0A0A0')
-              .borderRadius(10)
-              .fontSize(12)
             Button('重命名')
               .onClick(() => this.startRename(session))
               .margin({ left: 8 })

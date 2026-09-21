@@ -229,7 +229,8 @@ GenResult RunGeneration(
         n_past = n_prompt;
     }
 
-    // 单 token batch：生成循环复用
+    // 单 token batch：生成循环复用。prompt / 多模态 chunks decode 后已经产出首个 logits，
+    // 因此循环必须先采样，再把采样 token decode 成下一步 logits。
     BatchGuard one(1);
     one.get().n_tokens = 1;
     one.get().n_seq_id[0] = 1;
@@ -242,27 +243,13 @@ GenResult RunGeneration(
             break;
         }
 
-        llama_batch * cur = &one.get();
-
-        int32_t rc = 0;
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             state.SetActiveStopFlag(stop_flag.get());
-            rc = llama_decode(ctx, *cur);
-            if (rc == 0) {
-                new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
-            }
+            new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
             state.ClearActiveStopFlag();
         }
-        fprintf(stderr, "[gen] i=%d n_past=%d rc=%d token=%d\n", i, (int) n_past, rc, (int) new_token_id);
-
-        if (rc != 0) {
-            if (stop_requested()) {
-                stopped = true;
-                break;
-            }
-            return GenResult::Failed;
-        }
+        fprintf(stderr, "[gen] i=%d n_past=%d token=%d\n", i, (int) n_past, (int) new_token_id);
 
         if (first_token) {
             t_first = llama_time_us();
@@ -284,9 +271,27 @@ GenResult RunGeneration(
 
         llama_sampler_accept(smpl.get(), new_token_id);
 
-        n_past += 1;
+        if (i + 1 >= params.max_tokens) {
+            break;
+        }
+
         one.get().token[0] = new_token_id;
         one.get().pos[0] = n_past;
+        int32_t rc = 0;
+        {
+            std::lock_guard<std::mutex> lock(state.decode_mutex());
+            state.SetActiveStopFlag(stop_flag.get());
+            rc = llama_decode(ctx, one.get());
+            state.ClearActiveStopFlag();
+        }
+        if (rc != 0) {
+            if (stop_requested()) {
+                stopped = true;
+                break;
+            }
+            return GenResult::Failed;
+        }
+        n_past += 1;
 
         // 接近槽位上下文上限时滑动窗口（context shift），避免长对话被截断。
         // 借鉴 llama-server：seq_rm 丢弃中间一段，seq_add 把后续 token 位置前移。

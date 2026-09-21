@@ -135,7 +135,7 @@ export struct ModelRegistryPage {
       .backgroundColor('#25262B')
       .borderRadius(8)
       .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-      .margin({ right: 6, bottom: 6 })
+      .margin({ left: 3, right: 3, bottom: 6 })
   }
 
   @Builder
@@ -161,7 +161,7 @@ export struct ModelRegistryPage {
       .width('100%')
       .alignItems(VerticalAlign.Center)
       if (item.exists && item.mmprojExists) {
-        Flex({ wrap: FlexWrap.Wrap }) {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
           this.tag(`架构 ${item.info.architecture}`)
           this.tag(`参数量 ${item.info.parameters}`)
           this.tag(`量化 ${item.info.quantization}`)
@@ -175,9 +175,11 @@ export struct ModelRegistryPage {
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor('#E05858')
+          .width('100%')
+          .textAlign(TextAlign.Center)
           .margin({ top: 12, bottom: 6 })
       }
-      Flex({ wrap: FlexWrap.Wrap }) {
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
         if (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0) {
           Row() {
             Text('●').fontSize(9).fontColor('#78D891').margin({ right: 6 })
@@ -188,7 +190,7 @@ export struct ModelRegistryPage {
           .borderRadius(12)
           Button('卸载')
             .onClick(() => { this.inference.unload(); })
-            .margin({ right: 10, bottom: 6 })
+            .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor('#2C2D33')
             .fontColor('#A0A0A0')
             .borderRadius(12)
@@ -196,7 +198,7 @@ export struct ModelRegistryPage {
           Button(this.appState.loadingModelPath === item.info.path ? '加载中' : '加载模型')
             .enabled(!this.appState.loading)
             .onClick(() => { this.onOpenParamConfig(item.info); })
-            .margin({ right: 10, bottom: 6 })
+            .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor('#6C5CE7')
             .fontColor('#FFFFFF')
             .borderRadius(12)
@@ -204,14 +206,14 @@ export struct ModelRegistryPage {
         if (item.info.mmproj === null) {
           Button('导入投影器')
             .onClick(() => { this.modelService.importMmproj(item.info); })
-            .margin({ right: 10, bottom: 6 })
+            .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor('#2C2D33')
             .fontColor('#A0A0A0')
             .borderRadius(12)
         }
         Button('删除注册表')
           .onClick(() => { this.pendingDelete = item.info; })
-          .margin({ right: 10, bottom: 6 })
+          .margin({ left: 5, right: 5, bottom: 6 })
           .backgroundColor('#25262B')
           .fontColor('#A0A0A0')
           .borderRadius(12)
@@ -256,7 +258,7 @@ export struct ModelRegistryPage {
         .width('100%')
         .alignItems(VerticalAlign.Center)
         if (item.mmprojExists) {
-          Flex({ wrap: FlexWrap.Wrap }) {
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
             this.tag(`类型 ${item.info.mmproj.projectorType}`)
             this.tag(`维度 ${item.info.mmproj.embdDim}`)
             this.tag(`大小 ${formatSize(item.info.mmproj.fileSize)}`)
@@ -269,18 +271,19 @@ export struct ModelRegistryPage {
             .fontWeight(FontWeight.Bold)
             .fontColor('#E05858')
             .width('100%')
+            .textAlign(TextAlign.Center)
             .margin({ top: 12, bottom: 6 })
         }
-        Flex({ wrap: FlexWrap.Wrap }) {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
           Button(this.appState.selectedMmprojPath === item.info.mmproj.path ? '已选择投影器' : '选择投影器')
             .onClick(() => { this.modelService.toggleMmprojSelection(item.info); })
-            .margin({ right: 10, bottom: 6 })
+            .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor(this.appState.selectedMmprojPath === item.info.mmproj.path ? '#25352A' : '#25262B')
             .fontColor(this.appState.selectedMmprojPath === item.info.mmproj.path ? '#A8DDB5' : '#A0A0A0')
             .borderRadius(10)
           Button('删除投影器')
             .onClick(() => { this.modelService.deleteMmproj(item.info); })
-            .margin({ right: 10, bottom: 6 })
+            .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor('#2C2D33')
             .fontColor('#A0A0A0')
             .borderRadius(10)

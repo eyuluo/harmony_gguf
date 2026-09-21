@@ -261,9 +261,6 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         llama_set_abort_callback(ctx, abort_callback, nullptr);
     }
 
-    // 绑定中止回调，用于 stopGenerate/stopAll
-    llama_set_abort_callback(ctx, abort_callback, nullptr);
-
     // 加载多模态视觉投影（mmproj）；加载失败仅禁用多模态，不阻断纯文本模型
     mtmd_context * mctx = nullptr;
     if (!config.mmproj_path.empty()) {

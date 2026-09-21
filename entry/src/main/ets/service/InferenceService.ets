@@ -192,15 +192,12 @@ export class InferenceService {
     this.replaceSession(this.copyWith(session, { pinned: !session.pinned }));
   }
 
-  setPersistent(sessionId: number, persistent: boolean): void {
+  enablePersistence(sessionId: number): void {
     const session = this.findSession(sessionId);
-    if (session === null) {
+    if (session === null || session.persistent) {
       return;
     }
-    this.replaceSession(this.copyWith(session, { persistent: persistent }));
-    if (!persistent) {
-      this.removePersistedSession(sessionId);
-    }
+    this.replaceSession(this.copyWith(session, { persistent: true }));
   }
 
   generate(sessionId: number, prompt: string, attachments: string[]): void {
