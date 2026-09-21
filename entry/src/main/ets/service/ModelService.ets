@@ -33,7 +33,11 @@ export class ModelService {
     const stored = ModelStore.getInstance().getModels();
     const items: ModelItem[] = [];
     for (const model of stored) {
-      items.push({ info: model, exists: this.isFileExists(model.path) });
+      items.push({
+        info: model,
+        exists: this.isFileExists(model.path),
+        mmprojExists: model.mmproj === null || this.isFileExists(model.mmproj.path)
+      });
     }
     state.models = items;
   }
@@ -132,6 +136,7 @@ export class ModelService {
 
   async importMmproj(model: StoredModelInfo): Promise<void> {
     const context = this.context!;
+    const state = this.state!;
     let sourceFd = -1;
     let targetFd = -1;
     let targetPath = '';
@@ -191,6 +196,7 @@ export class ModelService {
           fileSize: Number(parts[3])
         }
       });
+      state.selectedMmprojPath = '';
       await this.refreshModels();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'import mmproj failed: %{public}s', String(error));
@@ -214,6 +220,10 @@ export class ModelService {
 
   async deleteMmproj(model: StoredModelInfo): Promise<void> {
     const context = this.context!;
+    const state = this.state!;
+    if (model.mmproj !== null && state.selectedMmprojPath === model.mmproj.path) {
+      state.selectedMmprojPath = '';
+    }
     await ModelStore.getInstance().init(context);
     await ModelStore.getInstance().saveModel({
       path: model.path,
@@ -230,23 +240,43 @@ export class ModelService {
     await this.refreshModels();
   }
 
-  async resolveMmproj(model: StoredModelInfo): Promise<string> {
+  toggleMmprojSelection(model: StoredModelInfo): void {
+    if (model.mmproj === null) {
+      return;
+    }
+    const state = this.state!;
+    state.selectedMmprojPath = state.selectedMmprojPath === model.mmproj.path ? '' : model.mmproj.path;
+  }
+
+  async resolveMmproj(model: StoredModelInfo, useMmproj: boolean): Promise<string> {
+    if (!useMmproj) {
+      return '';
+    }
     const mmproj = model.mmproj;
     if (mmproj === null) {
       return '';
     }
     if (!this.isFileExists(mmproj.path)) {
-      await this.deleteMmproj(model);
-      return '';
+      throw new Error('投影器文件不存在');
     }
     if (model.embdDim > 0 && mmproj.embdDim > 0 && model.embdDim !== mmproj.embdDim) {
-      await this.deleteMmproj(model);
-      return '';
+      throw new Error('模型与投影器维度不匹配');
     }
     return mmproj.path;
   }
 
+  validateModelFiles(model: StoredModelInfo, useMmproj: boolean): boolean {
+    if (!this.isFileExists(model.path)) {
+      return false;
+    }
+    return !useMmproj || (model.mmproj !== null && this.isFileExists(model.mmproj.path));
+  }
+
   async deleteRegistry(model: StoredModelInfo): Promise<void> {
+    const state = this.state!;
+    if (model.mmproj !== null && state.selectedMmprojPath === model.mmproj.path) {
+      state.selectedMmprojPath = '';
+    }
     await ModelStore.getInstance().removeModel(model.path);
     await this.refreshModels();
   }
@@ -256,6 +286,22 @@ export class ModelService {
     for (const item of state.models) {
       if (!item.exists) {
         await ModelStore.getInstance().removeModel(item.info.path);
+      } else if (!item.mmprojExists && item.info.mmproj !== null) {
+        if (state.selectedMmprojPath === item.info.mmproj.path) {
+          state.selectedMmprojPath = '';
+        }
+        await ModelStore.getInstance().saveModel({
+          path: item.info.path,
+          name: item.info.name,
+          architecture: item.info.architecture,
+          quantization: item.info.quantization,
+          parameters: item.info.parameters,
+          contextLength: item.info.contextLength,
+          tokenizer: item.info.tokenizer,
+          fileSize: item.info.fileSize,
+          embdDim: item.info.embdDim,
+          mmproj: null
+        });
       }
     }
     await this.refreshModels();

@@ -7,6 +7,7 @@ export interface SessionRecord {
   title: string;
   createdAt: number;
   updatedAt: number;
+  pinned: boolean;
 }
 
 // 消息记录
@@ -15,6 +16,7 @@ export interface MessageRecord {
   sessionId: number;
   role: string;
   content: string;
+  attachments: string[];
   createdAt: number;
 }
 
@@ -57,7 +59,8 @@ export class SessionStore {
       'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
       'title TEXT NOT NULL, ' +
       'created_at INTEGER NOT NULL, ' +
-      'updated_at INTEGER NOT NULL)'
+      'updated_at INTEGER NOT NULL, ' +
+      'pinned INTEGER NOT NULL DEFAULT 0)'
     );
     await this.store!.executeSql(
       'CREATE TABLE IF NOT EXISTS message (' +
@@ -65,8 +68,19 @@ export class SessionStore {
       'session_id INTEGER NOT NULL, ' +
       'role TEXT NOT NULL, ' +
       'content TEXT NOT NULL, ' +
+      'attachments TEXT NOT NULL DEFAULT \'[]\', ' +
       'created_at INTEGER NOT NULL)'
     );
+    try {
+      await this.store!.executeSql('ALTER TABLE session ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+    } catch (error) {
+      String(error);
+    }
+    try {
+      await this.store!.executeSql('ALTER TABLE message ADD COLUMN attachments TEXT NOT NULL DEFAULT \'[]\'');
+    } catch (error) {
+      String(error);
+    }
   }
 
   // 创建会话，返回会话 id
@@ -91,7 +105,8 @@ export class SessionStore {
         id: resultSet.getLong(resultSet.getColumnIndex('id')),
         title: resultSet.getString(resultSet.getColumnIndex('title')),
         createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
-        updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at'))
+        updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
+        pinned: resultSet.getLong(resultSet.getColumnIndex('pinned')) !== 0
       });
     }
     resultSet.close();
@@ -109,6 +124,25 @@ export class SessionStore {
     await this.store!.update(values, predicates);
   }
 
+  async saveSession(record: SessionRecord): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('session');
+    predicates.equalTo('id', record.id);
+    const updated = await this.store!.update({
+      'title': record.title,
+      'updated_at': record.updatedAt,
+      'pinned': record.pinned ? 1 : 0
+    }, predicates);
+    if (updated === 0) {
+      await this.store!.insert('session', {
+        'id': record.id,
+        'title': record.title,
+        'created_at': record.createdAt,
+        'updated_at': record.updatedAt,
+        'pinned': record.pinned ? 1 : 0
+      });
+    }
+  }
+
   // 删除会话及其消息
   async deleteSession(id: number): Promise<void> {
     const sessionPredicates = new relationalStore.RdbPredicates('session');
@@ -121,11 +155,12 @@ export class SessionStore {
   }
 
   // 追加消息，返回消息 id；同时刷新会话 updated_at
-  async addMessage(sessionId: number, role: string, content: string): Promise<number> {
+  async addMessage(sessionId: number, role: string, content: string, attachments: string[] = []): Promise<number> {
     const values: relationalStore.ValuesBucket = {
       'session_id': sessionId,
       'role': role,
       'content': content,
+      'attachments': JSON.stringify(attachments),
       'created_at': Date.now()
     };
     const id = await this.store!.insert('message', values);
@@ -153,6 +188,7 @@ export class SessionStore {
         sessionId: resultSet.getLong(resultSet.getColumnIndex('session_id')),
         role: resultSet.getString(resultSet.getColumnIndex('role')),
         content: resultSet.getString(resultSet.getColumnIndex('content')),
+        attachments: this.parseAttachments(resultSet.getString(resultSet.getColumnIndex('attachments'))),
         createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at'))
       });
     }
@@ -165,5 +201,21 @@ export class SessionStore {
     const predicates = new relationalStore.RdbPredicates('message');
     predicates.equalTo('session_id', sessionId);
     await this.store!.delete(predicates);
+  }
+
+  async replaceMessages(sessionId: number, messages: MessageRecord[]): Promise<void> {
+    await this.clearMessages(sessionId);
+    for (const message of messages) {
+      await this.addMessage(sessionId, message.role, message.content, message.attachments);
+    }
+  }
+
+  private parseAttachments(value: string): string[] {
+    try {
+      const parsed: string[] = JSON.parse(value || '[]') as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
   }
 }

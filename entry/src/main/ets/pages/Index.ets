@@ -38,12 +38,13 @@ struct Index {
     if (!context) {
       return;
     }
-    this.inference.init(this.appState);
+    this.inference.init(this.appState, context);
     this.serve.init(this.appState);
     this.settings.init(this.appState);
     this.modelService.init(this.appState, context);
     try {
       await this.settings.restoreSettings(context);
+      await this.inference.restoreSessions();
       await this.modelService.refreshModels();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'initialize failed: %{public}s', String(error));
@@ -160,16 +161,26 @@ struct Index {
         hilog.warn(DOMAIN, TAG, 'save settings failed: %{public}s', String(error));
       }
     }
-    const mmprojPath = await this.modelService.resolveMmproj(model);
-    const config: LoadConfig = {
-      contextLength: this.appState.contextLength,
-      threads: this.appState.threads,
-      parallel: this.appState.parallel,
-      mmprojPath: mmprojPath
-    };
-    await this.inference.loadModel(model, config);
-    if (this.appState.modelId > 0) {
-      this.activeTab = this.appState.returnTab;
+    try {
+      const useMmproj = model.mmproj !== null && this.appState.selectedMmprojPath === model.mmproj.path;
+      if (!this.modelService.validateModelFiles(model, useMmproj)) {
+        this.appState.loadFailed = true;
+        return;
+      }
+      const mmprojPath = await this.modelService.resolveMmproj(model, useMmproj);
+      const config: LoadConfig = {
+        contextLength: this.appState.contextLength,
+        threads: this.appState.threads,
+        parallel: this.appState.parallel,
+        mmprojPath: mmprojPath
+      };
+      await this.inference.loadModel(model, config);
+      if (this.appState.modelId > 0) {
+        this.activeTab = this.appState.returnTab;
+      }
+    } catch (error) {
+      hilog.error(DOMAIN, TAG, 'validate model files failed: %{public}s', String(error));
+      this.appState.loadFailed = true;
     }
   }
 }

@@ -9,6 +9,8 @@ export struct SessionList {
   private inference: InferenceService = InferenceService.getInstance();
   @State expandedId: number = 0;
   @State pendingDeleteId: number = 0;
+  @State renameId: number = 0;
+  @State renameText: string = '';
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
@@ -55,7 +57,7 @@ export struct SessionList {
             ListItem() {
               this.sessionItem(session)
             }
-          }, (session: Session) => `${session.id}:${session.status}:${session.updatedAt}:${session.pinned}`)
+          }, (session: Session) => `${session.id}:${session.title}:${session.status}:${session.updatedAt}:${session.pinned}:${session.persistent}`)
         }
         .layoutWeight(1)
         .width('100%')
@@ -109,7 +111,7 @@ export struct SessionList {
               .padding({ left: 6, right: 6, top: 2, bottom: 2 })
               .margin({ left: 8 })
           }
-          Button(this.expandedId === session.id ? '收起' : '⋮')
+          Button(this.expandedId === session.id ? '收起' : '...')
             .onClick(() => this.toggleExpand(session.id))
             .width(30)
             .height(26)
@@ -136,8 +138,8 @@ export struct SessionList {
         .width('100%')
         .margin({ top: 4 })
 
-        if (this.expandedId === session.id) {
-          Row() {
+          if (this.expandedId === session.id) {
+            Flex({ wrap: FlexWrap.Wrap }) {
             if (session.status === SESSION_RUNNING || session.status === SESSION_QUEUED) {
               Button('停止推理')
                 .onClick(() => this.inference.stopGeneration(session.id))
@@ -146,6 +148,20 @@ export struct SessionList {
                 .borderRadius(10)
                 .fontSize(12)
             }
+            Button(session.persistent ? '取消持久化' : '持久化')
+              .onClick(() => this.inference.setPersistent(session.id, !session.persistent))
+              .margin({ left: 8 })
+              .backgroundColor('#2C2D33')
+              .fontColor(session.persistent ? '#B9B1FF' : '#A0A0A0')
+              .borderRadius(10)
+              .fontSize(12)
+            Button('重命名')
+              .onClick(() => this.startRename(session))
+              .margin({ left: 8 })
+              .backgroundColor('#2C2D33')
+              .fontColor('#A0A0A0')
+              .borderRadius(10)
+              .fontSize(12)
             Button(session.pinned ? '取消置顶' : '置顶')
               .onClick(() => this.inference.togglePin(session.id))
               .margin({ left: 8 })
@@ -157,11 +173,39 @@ export struct SessionList {
               .onClick(() => { this.pendingDeleteId = session.id; })
               .margin({ left: 8 })
               .backgroundColor('#2C2D33')
-              .fontColor('#E58C8C')
-              .borderRadius(10)
-              .fontSize(12)
+            .fontColor('#E58C8C')
+            .borderRadius(10)
+            .fontSize(12)
           }
-          .margin({ top: 8 })
+            .width('100%')
+            .margin({ top: 8 })
+          if (this.renameId === session.id) {
+            Flex({ wrap: FlexWrap.Wrap }) {
+              TextInput({ placeholder: '输入会话名称', text: this.renameText })
+                .layoutWeight(1)
+                .height(36)
+                .onChange((value: string) => this.renameText = value)
+                .backgroundColor('#1E1F24')
+                .fontColor('#FFFFFF')
+                .borderRadius(8)
+              Button('保存')
+                .onClick(() => this.confirmRename(session.id))
+                .margin({ left: 8 })
+                .height(36)
+                .backgroundColor('#6C5CE7')
+                .fontColor('#FFFFFF')
+                .borderRadius(8)
+              Button('取消')
+                .onClick(() => this.cancelRename())
+                .margin({ left: 8 })
+                .height(36)
+                .backgroundColor('#2C2D33')
+                .fontColor('#A0A0A0')
+                .borderRadius(8)
+            }
+            .width('100%')
+            .margin({ top: 8 })
+          }
         }
       }
       .layoutWeight(1)
@@ -191,6 +235,29 @@ export struct SessionList {
 
   private toggleExpand(id: number): void {
     this.expandedId = this.expandedId === id ? 0 : id;
+    if (this.expandedId !== id) {
+      this.cancelRename();
+    }
+  }
+
+  private startRename(session: Session): void {
+    this.expandedId = session.id;
+    this.renameId = session.id;
+    this.renameText = session.title;
+  }
+
+  private confirmRename(sessionId: number): void {
+    const title = this.renameText.trim();
+    if (title.length === 0) {
+      return;
+    }
+    this.inference.renameSession(sessionId, title);
+    this.cancelRename();
+  }
+
+  private cancelRename(): void {
+    this.renameId = 0;
+    this.renameText = '';
   }
 
   private statusLabel(status: string): string {

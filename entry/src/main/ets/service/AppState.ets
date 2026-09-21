@@ -14,6 +14,7 @@ export interface Session {
   status: string;
   updatedAt: number;
   pinned: boolean;
+  persistent: boolean;
   lastStats: GenerateStats | null;
   requestId: number;
   pendingPrompt: string;
@@ -22,6 +23,7 @@ export interface Session {
 export interface ModelItem {
   info: StoredModelInfo;
   exists: boolean;
+  mmprojExists: boolean;
 }
 
 export interface ServeSource {
@@ -54,6 +56,7 @@ export class AppState {
   loadedConfig: LoadConfig | null = null;
 
   models: ModelItem[] = [];
+  selectedMmprojPath: string = '';
   returnTab: number = 0;
 
   sessions: Session[] = [];

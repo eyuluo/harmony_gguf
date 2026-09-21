@@ -1,5 +1,6 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { taskpool } from '@kit.ArkTS';
+import { common } from '@kit.AbilityKit';
 import testNapi from 'libentry.so';
 import { GenerateStats, GenerateError, TokenData, LoadConfig } from 'libentry.so';
 import {
@@ -13,6 +14,7 @@ import {
 } from './AppState';
 import { StoredModelInfo } from './ModelStore';
 import { loadModelTask } from './ModelTasks';
+import { MessageRecord, SessionStore } from './SessionStore';
 
 const DOMAIN = 0x0000;
 const TAG = 'InferenceService';
@@ -21,6 +23,7 @@ interface SessionPatch {
   title?: string;
   status?: string;
   pinned?: boolean;
+  persistent?: boolean;
   requestId?: number;
   messages?: SessionMessage[];
   lastStats?: GenerateStats | null;
@@ -29,6 +32,8 @@ interface SessionPatch {
 export class InferenceService {
   private static instance: InferenceService | null = null;
   private state: AppState | null = null;
+  private context: common.Context | null = null;
+  private persistChain: Promise<void> = Promise.resolve();
 
   static getInstance(): InferenceService {
     if (InferenceService.instance === null) {
@@ -37,8 +42,48 @@ export class InferenceService {
     return InferenceService.instance;
   }
 
-  init(state: AppState): void {
+  init(state: AppState, context: common.Context): void {
     this.state = state;
+    this.context = context;
+  }
+
+  async restoreSessions(): Promise<void> {
+    if (this.context === null) {
+      return;
+    }
+    const store = SessionStore.getInstance();
+    await store.init(this.context);
+    const records = await store.listSessions();
+    const restored: Session[] = [];
+    let nextId = 1;
+    for (const record of records) {
+      const messages = await store.listMessages(record.id);
+      const restoredMessages: SessionMessage[] = [];
+      for (const message of messages) {
+        restoredMessages.push({
+          role: message.role,
+          content: message.content,
+          attachments: message.attachments
+        });
+      }
+      restored.push({
+        id: record.id,
+        title: record.title,
+        messages: restoredMessages,
+        status: SESSION_IDLE,
+        updatedAt: record.updatedAt,
+        pinned: record.pinned,
+        persistent: true,
+        lastStats: null,
+        requestId: 0,
+        pendingPrompt: ''
+      });
+      nextId = Math.max(nextId, record.id + 1);
+    }
+    const state = this.state!;
+    state.sessions = restored;
+    state.activeSessionId = restored.length > 0 ? restored[0].id : 0;
+    state.nextSessionId = nextId;
   }
 
   async loadModel(model: StoredModelInfo, config: LoadConfig): Promise<void> {
@@ -56,9 +101,6 @@ export class InferenceService {
       state.modelInfo = model;
       state.activeModelPath = model.path;
       state.loadedConfig = config;
-      state.sessions = [];
-      state.activeSessionId = 0;
-      state.nextSessionId = 1;
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'load model failed: %{public}s', String(error));
       state.modelId = 0;
@@ -84,8 +126,6 @@ export class InferenceService {
     state.modelInfo = null;
     state.activeModelPath = '';
     state.loadedConfig = null;
-    state.sessions = [];
-    state.activeSessionId = 0;
     state.serverRunning = false;
     state.serverInfo = '服务未启动';
   }
@@ -101,6 +141,7 @@ export class InferenceService {
       status: SESSION_IDLE,
       updatedAt: Date.now(),
       pinned: false,
+      persistent: false,
       lastStats: null,
       requestId: 0,
       pendingPrompt: ''
@@ -128,6 +169,7 @@ export class InferenceService {
     if (state.activeSessionId === sessionId) {
       state.activeSessionId = remaining.length > 0 ? remaining[0].id : 0;
     }
+    this.removePersistedSession(sessionId);
   }
 
   renameSession(sessionId: number, title: string): void {
@@ -135,7 +177,11 @@ export class InferenceService {
     if (session === null) {
       return;
     }
-    this.replaceSession(this.copyWith(session, { title: title }));
+    const nextTitle = title.trim();
+    if (nextTitle.length === 0) {
+      return;
+    }
+    this.replaceSession(this.copyWith(session, { title: nextTitle }));
   }
 
   togglePin(sessionId: number): void {
@@ -144,6 +190,17 @@ export class InferenceService {
       return;
     }
     this.replaceSession(this.copyWith(session, { pinned: !session.pinned }));
+  }
+
+  setPersistent(sessionId: number, persistent: boolean): void {
+    const session = this.findSession(sessionId);
+    if (session === null) {
+      return;
+    }
+    this.replaceSession(this.copyWith(session, { persistent: persistent }));
+    if (!persistent) {
+      this.removePersistedSession(sessionId);
+    }
   }
 
   generate(sessionId: number, prompt: string, attachments: string[]): void {
@@ -176,6 +233,7 @@ export class InferenceService {
       status: SESSION_RUNNING,
       updatedAt: Date.now(),
       pinned: session.pinned,
+      persistent: session.persistent,
       lastStats: session.lastStats,
       requestId: 0,
       pendingPrompt: prompt
@@ -237,6 +295,9 @@ export class InferenceService {
   private onGenerateEvent(sessionId: number, event: string, data: object): void {
     const session = this.findSession(sessionId);
     if (session === null) {
+      if (event === 'done' || event === 'stopped' || event === 'error') {
+        this.dequeueNext();
+      }
       return;
     }
     const updated: Session = {
@@ -246,6 +307,7 @@ export class InferenceService {
       status: session.status,
       updatedAt: Date.now(),
       pinned: session.pinned,
+      persistent: session.persistent,
       lastStats: session.lastStats,
       requestId: session.requestId,
       pendingPrompt: session.pendingPrompt
@@ -342,6 +404,7 @@ export class InferenceService {
       status: session.status,
       updatedAt: session.updatedAt,
       pinned: session.pinned,
+      persistent: session.persistent,
       lastStats: session.lastStats,
       requestId: session.requestId,
       pendingPrompt: session.pendingPrompt
@@ -354,6 +417,9 @@ export class InferenceService {
     }
     if (patch.pinned !== undefined) {
       result.pinned = patch.pinned;
+    }
+    if (patch.persistent !== undefined) {
+      result.persistent = patch.persistent;
     }
     if (patch.requestId !== undefined) {
       result.requestId = patch.requestId;
@@ -374,5 +440,53 @@ export class InferenceService {
       next.push(s.id === session.id ? session : s);
     }
     state.sessions = next;
+    if (session.persistent) {
+      this.persistSession(session);
+    }
+  }
+
+  private persistSession(session: Session): void {
+    if (this.context === null) {
+      return;
+    }
+    this.persistChain = this.persistChain.then(async () => {
+      const store = SessionStore.getInstance();
+      await store.init(this.context!);
+      await store.saveSession({
+        id: session.id,
+        title: session.title,
+        createdAt: session.updatedAt,
+        updatedAt: session.updatedAt,
+        pinned: session.pinned
+      });
+      const messages: MessageRecord[] = [];
+      for (let index = 0; index < session.messages.length; index++) {
+        const message = session.messages[index];
+        messages.push({
+          id: index + 1,
+          sessionId: session.id,
+          role: message.role,
+          content: message.content,
+          attachments: message.attachments,
+          createdAt: session.updatedAt + index
+        });
+      }
+      await store.replaceMessages(session.id, messages);
+    }).catch((error: Error) => {
+      hilog.error(DOMAIN, TAG, 'persist session failed: %{public}s', String(error));
+    });
+  }
+
+  private removePersistedSession(sessionId: number): void {
+    if (this.context === null) {
+      return;
+    }
+    this.persistChain = this.persistChain.then(async () => {
+      const store = SessionStore.getInstance();
+      await store.init(this.context!);
+      await store.deleteSession(sessionId);
+    }).catch((error: Error) => {
+      hilog.error(DOMAIN, TAG, 'delete persisted session failed: %{public}s', String(error));
+    });
   }
 }

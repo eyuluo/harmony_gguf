@@ -40,7 +40,9 @@ export struct ModelRegistryPage {
             } else {
               ForEach(this.appState.models, (item: ModelItem) => {
                 this.modelCard(item)
-              }, (item: ModelItem) => item.info.path)
+              }, (item: ModelItem) => item.info.path + ':' +
+                (item.info.mmproj === null ? '' : item.info.mmproj.path) + ':' +
+                String(item.exists) + ':' + String(item.mmprojExists))
             }
           }
           .width('100%')
@@ -129,7 +131,7 @@ export struct ModelRegistryPage {
   tag(value: string) {
     Text(value)
       .fontSize(12)
-      .fontColor('#6C6C6C')
+      .fontColor('#C9C9CF')
       .backgroundColor('#25262B')
       .borderRadius(8)
       .padding({ left: 8, right: 8, top: 4, bottom: 4 })
@@ -139,94 +141,92 @@ export struct ModelRegistryPage {
   @Builder
   modelCard(item: ModelItem) {
     Column() {
-      Text(item.info.name)
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#FFFFFF')
-        .width('100%')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      if (item.exists) {
-        Flex({ wrap: FlexWrap.Wrap }) {
-          this.tag(item.info.architecture)
-          this.tag(item.info.quantization)
-          this.tag(item.info.parameters)
-        }
-        .width('100%')
-        .margin({ top: 12, bottom: 4 })
-        Text(`上下文 ${item.info.contextLength} · tokenizer ${item.info.tokenizer} · ${formatSize(item.info.fileSize)}`)
-          .fontSize(12)
-          .fontColor('#6C6C6C')
-          .width('100%')
-          .margin({ bottom: 5 })
-        Text(item.info.path)
-          .fontSize(11)
-          .fontColor('#5F6068')
-          .width('100%')
+      Row() {
+        Text(item.info.name)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ bottom: 16 })
-        Row() {
-          if (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0) {
-            Row() {
-              Text('●').fontSize(9).fontColor('#78D891').margin({ right: 6 })
-              Text('已加载').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#A8DDB5')
-            }
-            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-            .backgroundColor('#25352A')
-            .borderRadius(12)
-            Button('卸载')
-              .onClick(() => { this.inference.unload(); })
-              .margin({ left: 10 })
-              .backgroundColor('#2C2D33')
-              .fontColor('#A0A0A0')
-              .borderRadius(12)
-          } else {
-            Button(this.appState.loadingModelPath === item.info.path ? '加载中' : '加载模型')
-              .enabled(!this.appState.loading)
-              .onClick(() => { this.onOpenParamConfig(item.info); })
-              .backgroundColor('#6C5CE7')
-              .fontColor('#FFFFFF')
-              .borderRadius(12)
-          }
-          if (item.info.mmproj === null) {
-            Button('导入投影器')
-              .onClick(() => { this.modelService.importMmproj(item.info); })
-              .margin({ left: 10 })
-              .backgroundColor('#2C2D33')
-              .fontColor('#A0A0A0')
-              .borderRadius(12)
-          }
-          Button('删除注册表')
-            .onClick(() => { this.pendingDelete = item.info; })
-            .margin({ left: 10 })
-            .backgroundColor('#25262B')
-            .fontColor('#A0A0A0')
-            .borderRadius(12)
+        Text(item.info.path)
+          .fontSize(11)
+          .fontColor('#6C6C6C')
+          .width('42%')
+          .maxLines(1)
+          .textAlign(TextAlign.End)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ left: 12 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      if (item.exists && item.mmprojExists) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          this.tag(`架构 ${item.info.architecture}`)
+          this.tag(`参数量 ${item.info.parameters}`)
+          this.tag(`量化 ${item.info.quantization}`)
+          this.tag(`大小 ${formatSize(item.info.fileSize)}`)
+          this.tag(`上下文 ${item.info.contextLength}`)
         }
-        if (item.info.mmproj !== null) {
-          this.mmprojLayer(item)
-        }
+        .width('100%')
+        .margin({ top: 12, bottom: 6 })
       } else {
-        Text('未在该位置找到该模型')
+        Text('模型未找到')
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor('#E05858')
-          .margin({ top: 12, bottom: 14 })
-        Row() {
-          Button('删除注册表')
-            .onClick(() => { this.pendingDelete = item.info; })
+          .margin({ top: 12, bottom: 6 })
+      }
+      Flex({ wrap: FlexWrap.Wrap }) {
+        if (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0) {
+          Row() {
+            Text('●').fontSize(9).fontColor('#78D891').margin({ right: 6 })
+            Text('已加载').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#A8DDB5')
+          }
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .backgroundColor('#25352A')
+          .borderRadius(12)
+          Button('卸载')
+            .onClick(() => { this.inference.unload(); })
+            .margin({ right: 10, bottom: 6 })
+            .backgroundColor('#2C2D33')
+            .fontColor('#A0A0A0')
+            .borderRadius(12)
+        } else {
+          Button(this.appState.loadingModelPath === item.info.path ? '加载中' : '加载模型')
+            .enabled(!this.appState.loading)
+            .onClick(() => { this.onOpenParamConfig(item.info); })
+            .margin({ right: 10, bottom: 6 })
+            .backgroundColor('#6C5CE7')
+            .fontColor('#FFFFFF')
+            .borderRadius(12)
+        }
+        if (item.info.mmproj === null) {
+          Button('导入投影器')
+            .onClick(() => { this.modelService.importMmproj(item.info); })
+            .margin({ right: 10, bottom: 6 })
             .backgroundColor('#2C2D33')
             .fontColor('#A0A0A0')
             .borderRadius(12)
         }
+        Button('删除注册表')
+          .onClick(() => { this.pendingDelete = item.info; })
+          .margin({ right: 10, bottom: 6 })
+          .backgroundColor('#25262B')
+          .fontColor('#A0A0A0')
+          .borderRadius(12)
+      }
+      .width('100%')
+      if (item.info.mmproj !== null) {
+        this.mmprojLayer(item)
       }
     }
     .width('100%')
     .padding(16)
     .backgroundColor('#1E1F24')
     .borderWidth(1)
-    .borderColor(item.exists ? (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0 ? '#4D465F' : '#2C2D33') : '#3A2C2C')
+    .borderColor(item.exists && item.mmprojExists ?
+      (this.appState.activeModelPath === item.info.path && this.appState.modelId > 0 ? '#4D465F' : '#2C2D33') : '#3A2C2C')
     .borderRadius(16)
     .margin({ bottom: 12 })
   }
@@ -236,48 +236,65 @@ export struct ModelRegistryPage {
     if (item.info.mmproj !== null) {
       Column() {
         Divider().color('#2C2D33').margin({ top: 14, bottom: 12 })
-        Text(`投影器：${item.info.mmproj.name}`)
-          .fontSize(13)
-          .fontColor('#C9C9CF')
-          .width('100%')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(item.info.mmproj.path)
-          .fontSize(10)
-          .fontColor('#5F6068')
-          .width('100%')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 2 })
-        Text(`${item.info.mmproj.projectorType} · embd ${item.info.mmproj.embdDim} · ${formatSize(item.info.mmproj.fileSize)}`)
-          .fontSize(11)
-          .fontColor('#6C6C6C')
-          .width('100%')
-          .margin({ top: 4, bottom: 10 })
         Row() {
-          Button('选择投影器')
-            .onClick(() => { this.modelService.importMmproj(item.info); })
-            .backgroundColor('#25262B')
-            .fontColor('#A0A0A0')
+          Text(item.info.mmproj.name)
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FFFFFF')
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(item.info.mmproj.path)
+            .fontSize(11)
+            .fontColor('#6C6C6C')
+            .width('42%')
+            .maxLines(1)
+            .textAlign(TextAlign.End)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ left: 12 })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        if (item.mmprojExists) {
+          Flex({ wrap: FlexWrap.Wrap }) {
+            this.tag(`类型 ${item.info.mmproj.projectorType}`)
+            this.tag(`维度 ${item.info.mmproj.embdDim}`)
+            this.tag(`大小 ${formatSize(item.info.mmproj.fileSize)}`)
+          }
+          .width('100%')
+          .margin({ top: 12, bottom: 6 })
+        } else {
+          Text('模型未找到')
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#E05858')
+            .width('100%')
+            .margin({ top: 12, bottom: 6 })
+        }
+        Flex({ wrap: FlexWrap.Wrap }) {
+          Button(this.appState.selectedMmprojPath === item.info.mmproj.path ? '已选择投影器' : '选择投影器')
+            .onClick(() => { this.modelService.toggleMmprojSelection(item.info); })
+            .margin({ right: 10, bottom: 6 })
+            .backgroundColor(this.appState.selectedMmprojPath === item.info.mmproj.path ? '#25352A' : '#25262B')
+            .fontColor(this.appState.selectedMmprojPath === item.info.mmproj.path ? '#A8DDB5' : '#A0A0A0')
             .borderRadius(10)
           Button('删除投影器')
             .onClick(() => { this.modelService.deleteMmproj(item.info); })
-            .margin({ left: 10 })
+            .margin({ right: 10, bottom: 6 })
             .backgroundColor('#2C2D33')
             .fontColor('#A0A0A0')
             .borderRadius(10)
         }
+        .width('100%')
       }
       .width('100%')
-      .padding({ left: 12, right: 12, top: 2, bottom: 12 })
-      .backgroundColor('#191A1E')
-      .borderRadius(12)
+      .padding({ top: 2, bottom: 4 })
     }
   }
 
   private hasMissingModels(): boolean {
     for (const item of this.appState.models) {
-      if (!item.exists) {
+      if (!item.exists || !item.mmprojExists) {
         return true;
       }
     }
