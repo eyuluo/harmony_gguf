@@ -73,14 +73,44 @@ export struct ChatPage {
 
   @Builder
   detailTopBar() {
-    Row() {
-      if (!this.isWide) {
-        Text('对话列表')
-          .fontSize(13)
-          .fontColor('#A9A2E8')
-          .onClick(() => { this.appState.showSessionList = true; })
+    Column() {
+      Row() {
+        if (!this.isWide) {
+          Row() {
+            Image($r('app.media.ic_sessions'))
+              .width(16)
+              .height(16)
+            Text('对话列表')
+              .fontSize(12)
+              .fontColor('#CFC9FF')
+              .margin({ left: 6 })
+          }
+            .height(32)
+            .padding({ left: 10, right: 10 })
+            .backgroundColor('#1E1F24')
+            .borderRadius(10)
+            .onClick(() => { this.appState.showSessionList = true; })
+        }
+        Blank()
+        if (this.appState.modelId > 0 && !this.isGenerating()) {
+          Row() {
+            Image($r('app.media.ic_new_chat'))
+              .width(16)
+              .height(16)
+            Text('新对话')
+              .fontSize(12)
+              .fontColor('#CFC9FF')
+              .margin({ left: 5 })
+          }
+            .height(32)
+            .padding({ left: 10, right: 10 })
+            .backgroundColor('#1E1F24')
+            .borderRadius(10)
+            .onClick(() => this.createSession())
+        }
       }
-      Blank()
+      .width('100%')
+
       if (this.currentSession() !== null && this.isGenerating()) {
         Row() {
           Text('●')
@@ -91,15 +121,20 @@ export struct ChatPage {
             .fontSize(12)
             .fontColor('#B9B1FF')
         }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+          .margin({ top: 6 })
       } else if (this.currentSession() !== null && this.currentSession()!.lastStats !== null) {
         Text(this.statsText(this.currentSession()!.lastStats))
+          .width('100%')
           .fontSize(11)
           .fontColor('#6C6C6C')
+          .textAlign(TextAlign.End)
+          .margin({ top: 6 })
       }
     }
     .width('100%')
     .padding({ left: 20, right: 20, top: 14, bottom: 12 })
-    .alignItems(VerticalAlign.Center)
   }
 
   @Builder
@@ -263,6 +298,14 @@ export struct ChatPage {
 
   private selectSession(id: number): void {
     this.appState.activeSessionId = id;
+    this.appState.showSessionList = false;
+  }
+
+  private createSession(): void {
+    if (this.appState.modelId <= 0 || this.appState.loading || this.isGenerating()) {
+      return;
+    }
+    this.inference.newSession();
     this.appState.showSessionList = false;
   }
 

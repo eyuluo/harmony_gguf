@@ -12,7 +12,7 @@ export struct HeaderBar {
             .width(24)
             .height(24)
             .margin({ right: 8 })
-          Text('Harmony-GGUF')
+          Text('鸿思')
             .fontSize(21)
             .fontWeight(FontWeight.Bold)
             .fontColor('#FFFFFF')
