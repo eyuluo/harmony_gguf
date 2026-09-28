@@ -33,6 +33,19 @@ export class ModelService {
     const stored = ModelStore.getInstance().getModels();
     const items: ModelItem[] = [];
     for (const model of stored) {
+      const needsQuantizationRefresh = model.quantization.startsWith('(guessed)') ||
+        model.quantization.indexOf('all F32') >= 0;
+      if (needsQuantizationRefresh && this.isFileExists(model.path)) {
+        try {
+          const parts = (await taskpool.execute(parseModelTask, model.path) as string).split('|');
+          if (parts[1] !== model.quantization) {
+            model.quantization = parts[1];
+            await ModelStore.getInstance().saveModel(model);
+          }
+        } catch (error) {
+          hilog.warn(DOMAIN, TAG, 'refresh model metadata failed: %{public}s', String(error));
+        }
+      }
       items.push({
         info: model,
         exists: this.isFileExists(model.path),

@@ -64,7 +64,7 @@ export struct SessionList {
             ListItem() {
               this.sessionItem(session)
             }
-          }, (session: Session) => `${session.id}:${session.title}:${session.status}:${session.updatedAt}:${session.pinned}:${session.persistent}`)
+          }, (session: Session) => `${session.id}:${session.title}:${session.status}:${session.createdAt}:${session.updatedAt}:${session.pinned}:${session.persistent}`)
         }
         .layoutWeight(1)
         .width('100%')
@@ -225,7 +225,7 @@ export struct SessionList {
       if (a.pinned !== b.pinned) {
         return a.pinned ? -1 : 1;
       }
-      return b.updatedAt - a.updatedAt;
+      return b.createdAt - a.createdAt;
     });
     return list;
   }

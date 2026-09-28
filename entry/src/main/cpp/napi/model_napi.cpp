@@ -77,6 +77,48 @@ static bool read_gguf_bool(const gguf_context * ctx, const char * key) {
     return gguf_get_val_bool(ctx, id);
 }
 
+static std::string quantization_name(uint32_t file_type) {
+    switch (file_type) {
+        case LLAMA_FTYPE_ALL_F32: return "F32";
+        case LLAMA_FTYPE_MOSTLY_F16: return "F16";
+        case LLAMA_FTYPE_MOSTLY_BF16: return "BF16";
+        case LLAMA_FTYPE_MOSTLY_Q2_0: return "Q2_0";
+        case LLAMA_FTYPE_MOSTLY_Q2_K: return "Q2_K";
+        case LLAMA_FTYPE_MOSTLY_Q2_K_S: return "Q2_K_S";
+        case LLAMA_FTYPE_MOSTLY_Q3_K_S: return "Q3_K_S";
+        case LLAMA_FTYPE_MOSTLY_Q3_K_M: return "Q3_K_M";
+        case LLAMA_FTYPE_MOSTLY_Q3_K_L: return "Q3_K_L";
+        case LLAMA_FTYPE_MOSTLY_Q4_0: return "Q4_0";
+        case LLAMA_FTYPE_MOSTLY_Q4_1: return "Q4_1";
+        case LLAMA_FTYPE_MOSTLY_Q4_K_S: return "Q4_K_S";
+        case LLAMA_FTYPE_MOSTLY_Q4_K_M: return "Q4_K_M";
+        case LLAMA_FTYPE_MOSTLY_Q5_0: return "Q5_0";
+        case LLAMA_FTYPE_MOSTLY_Q5_1: return "Q5_1";
+        case LLAMA_FTYPE_MOSTLY_Q5_K_S: return "Q5_K_S";
+        case LLAMA_FTYPE_MOSTLY_Q5_K_M: return "Q5_K_M";
+        case LLAMA_FTYPE_MOSTLY_Q6_K: return "Q6_K";
+        case LLAMA_FTYPE_MOSTLY_Q8_0: return "Q8_0";
+        case LLAMA_FTYPE_MOSTLY_Q1_0: return "Q1_0";
+        case LLAMA_FTYPE_MOSTLY_IQ1_S: return "IQ1_S";
+        case LLAMA_FTYPE_MOSTLY_IQ1_M: return "IQ1_M";
+        case LLAMA_FTYPE_MOSTLY_IQ2_XXS: return "IQ2_XXS";
+        case LLAMA_FTYPE_MOSTLY_IQ2_XS: return "IQ2_XS";
+        case LLAMA_FTYPE_MOSTLY_IQ2_S: return "IQ2_S";
+        case LLAMA_FTYPE_MOSTLY_IQ2_M: return "IQ2_M";
+        case LLAMA_FTYPE_MOSTLY_IQ3_XXS: return "IQ3_XXS";
+        case LLAMA_FTYPE_MOSTLY_IQ3_XS: return "IQ3_XS";
+        case LLAMA_FTYPE_MOSTLY_IQ3_S: return "IQ3_S";
+        case LLAMA_FTYPE_MOSTLY_IQ3_M: return "IQ3_M";
+        case LLAMA_FTYPE_MOSTLY_IQ4_NL: return "IQ4_NL";
+        case LLAMA_FTYPE_MOSTLY_IQ4_XS: return "IQ4_XS";
+        case LLAMA_FTYPE_MOSTLY_TQ1_0: return "TQ1_0";
+        case LLAMA_FTYPE_MOSTLY_TQ2_0: return "TQ2_0";
+        case LLAMA_FTYPE_MOSTLY_MXFP4_MOE: return "MXFP4_MOE";
+        case LLAMA_FTYPE_MOSTLY_NVFP4: return "NVFP4";
+        default: return "未知";
+    }
+}
+
 // 填充 ModelMetadata 并转换为 napi 对象
 static napi_value build_metadata_object(napi_env env, const ModelMetadata & meta) {
     napi_value obj = napi_util::NewObject(env);
@@ -114,7 +156,18 @@ static napi_value ParseGgufMetadata(napi_env env, napi_callback_info info) {
 
     ModelMetadata meta;
     meta.architecture = read_meta_str(model, "general.architecture");
-    meta.quantization = llama_ftype_name(llama_model_ftype(model));
+    gguf_init_params gguf_params = { true, nullptr };
+    gguf_context * gguf = gguf_init_from_file(path.c_str(), gguf_params);
+    if (gguf != nullptr) {
+        const int64_t file_type_id = gguf_find_key(gguf, "general.file_type");
+        if (file_type_id >= 0) {
+            meta.quantization = quantization_name(gguf_get_val_u32(gguf, file_type_id));
+        }
+        gguf_free(gguf);
+    }
+    if (meta.quantization.empty()) {
+        meta.quantization = quantization_name(static_cast<uint32_t>(llama_model_ftype(model)));
+    }
     meta.context_length = static_cast<uint32_t>(llama_model_n_ctx_train(model));
     struct stat file_stat;
     meta.file_size = stat(path.c_str(), &file_stat) == 0 ? static_cast<uint64_t>(file_stat.st_size) : 0;

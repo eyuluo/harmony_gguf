@@ -8,6 +8,8 @@ export interface SessionRecord {
   createdAt: number;
   updatedAt: number;
   pinned: boolean;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 // 消息记录
@@ -60,7 +62,9 @@ export class SessionStore {
       'title TEXT NOT NULL, ' +
       'created_at INTEGER NOT NULL, ' +
       'updated_at INTEGER NOT NULL, ' +
-      'pinned INTEGER NOT NULL DEFAULT 0)'
+      'pinned INTEGER NOT NULL DEFAULT 0, ' +
+      'total_input_tokens INTEGER NOT NULL DEFAULT 0, ' +
+      'total_output_tokens INTEGER NOT NULL DEFAULT 0)'
     );
     await this.store!.executeSql(
       'CREATE TABLE IF NOT EXISTS message (' +
@@ -73,6 +77,16 @@ export class SessionStore {
     );
     try {
       await this.store!.executeSql('ALTER TABLE session ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+    } catch (error) {
+      String(error);
+    }
+    try {
+      await this.store!.executeSql('ALTER TABLE session ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0');
+    } catch (error) {
+      String(error);
+    }
+    try {
+      await this.store!.executeSql('ALTER TABLE session ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0');
     } catch (error) {
       String(error);
     }
@@ -94,10 +108,10 @@ export class SessionStore {
     return await this.store!.insert('session', values);
   }
 
-  // 会话列表（按最近更新倒序）
+  // 会话列表（按创建时间倒序）
   async listSessions(): Promise<SessionRecord[]> {
     const predicates = new relationalStore.RdbPredicates('session');
-    predicates.orderByDesc('updated_at');
+    predicates.orderByDesc('created_at');
     const resultSet = await this.store!.query(predicates);
     const sessions: SessionRecord[] = [];
     while (resultSet.goToNextRow()) {
@@ -106,7 +120,9 @@ export class SessionStore {
         title: resultSet.getString(resultSet.getColumnIndex('title')),
         createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
         updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
-        pinned: resultSet.getLong(resultSet.getColumnIndex('pinned')) !== 0
+        pinned: resultSet.getLong(resultSet.getColumnIndex('pinned')) !== 0,
+        totalInputTokens: resultSet.getLong(resultSet.getColumnIndex('total_input_tokens')),
+        totalOutputTokens: resultSet.getLong(resultSet.getColumnIndex('total_output_tokens'))
       });
     }
     resultSet.close();
@@ -130,7 +146,9 @@ export class SessionStore {
     const updated = await this.store!.update({
       'title': record.title,
       'updated_at': record.updatedAt,
-      'pinned': record.pinned ? 1 : 0
+      'pinned': record.pinned ? 1 : 0,
+      'total_input_tokens': record.totalInputTokens,
+      'total_output_tokens': record.totalOutputTokens
     }, predicates);
     if (updated === 0) {
       await this.store!.insert('session', {
@@ -138,7 +156,9 @@ export class SessionStore {
         'title': record.title,
         'created_at': record.createdAt,
         'updated_at': record.updatedAt,
-        'pinned': record.pinned ? 1 : 0
+        'pinned': record.pinned ? 1 : 0,
+        'total_input_tokens': record.totalInputTokens,
+        'total_output_tokens': record.totalOutputTokens
       });
     }
   }

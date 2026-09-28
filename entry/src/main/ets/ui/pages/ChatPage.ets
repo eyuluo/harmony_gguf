@@ -1,6 +1,5 @@
 import { AppState, Session, SessionMessage, SESSION_RUNNING } from '../../service/AppState';
 import { InferenceService } from '../../service/InferenceService';
-import { GenerateStats } from 'libentry.so';
 import { picker } from '@kit.CoreFileKit';
 import { SessionList } from '../components/SessionList';
 import { EmptyState, LoadingState, FailedState } from '../components/StateViews';
@@ -92,22 +91,6 @@ export struct ChatPage {
             .onClick(() => { this.appState.showSessionList = true; })
         }
         Blank()
-        if (this.appState.modelId > 0 && !this.isGenerating()) {
-          Row() {
-            Image($r('app.media.ic_new_chat'))
-              .width(16)
-              .height(16)
-            Text('新对话')
-              .fontSize(12)
-              .fontColor('#CFC9FF')
-              .margin({ left: 5 })
-          }
-            .height(32)
-            .padding({ left: 10, right: 10 })
-            .backgroundColor('#1E1F24')
-            .borderRadius(10)
-            .onClick(() => this.createSession())
-        }
       }
       .width('100%')
 
@@ -124,8 +107,10 @@ export struct ChatPage {
           .width('100%')
           .justifyContent(FlexAlign.End)
           .margin({ top: 6 })
-      } else if (this.currentSession() !== null && this.currentSession()!.lastStats !== null) {
-        Text(this.statsText(this.currentSession()!.lastStats))
+      } else if (this.currentSession() !== null &&
+        (this.currentSession()!.lastStats !== null || this.currentSession()!.totalInputTokens > 0 ||
+        this.currentSession()!.totalOutputTokens > 0)) {
+        Text(this.statsText(this.currentSession()!))
           .width('100%')
           .fontSize(11)
           .fontColor('#6C6C6C')
@@ -301,14 +286,6 @@ export struct ChatPage {
     this.appState.showSessionList = false;
   }
 
-  private createSession(): void {
-    if (this.appState.modelId <= 0 || this.appState.loading || this.isGenerating()) {
-      return;
-    }
-    this.inference.newSession();
-    this.appState.showSessionList = false;
-  }
-
   private currentSession(): Session | null {
     for (const s of this.appState.sessions) {
       if (s.id === this.appState.activeSessionId) {
@@ -361,10 +338,14 @@ export struct ChatPage {
     }
   }
 
-  private statsText(s: GenerateStats | null): string {
+  private statsText(session: Session): string {
+    const s = session.lastStats;
+    const totals = `总输入：${session.totalInputTokens} tokens, 总输出：${session.totalOutputTokens} tokens`;
     if (s === null) {
-      return '';
+      return totals;
     }
-    return `输入 ${s.promptTokens} · 输出 ${s.generatedTokens} · TTFT ${s.ttftMs.toFixed(0)} ms · ${s.tokensPerSecond.toFixed(1)} t/s`;
+    return `${totals}\n` +
+      `输入：${s.promptTokens} tokens, 输出：${s.generatedTokens} tokens\n` +
+      `TTFT：${s.ttftMs.toFixed(0)} ms, 吞吐量：${s.tokensPerSecond.toFixed(1)} tokens/s`;
   }
 }

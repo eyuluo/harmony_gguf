@@ -13,7 +13,7 @@ export struct SideNav {
       this.navItem($r('app.media.ic_server'), '服务', 2)
       Blank()
     }
-    .width(188)
+    .width(96)
     .height('100%')
     .backgroundColor('#18191D')
     .borderWidth({ right: 1 })
@@ -32,20 +32,23 @@ export struct SideNav {
 
   @Builder
   navItem(icon: Resource, label: string, index: number) {
-    Row() {
+    Column() {
       Image(icon)
         .width(20)
         .height(20)
         .fillColor(this.activeTab === index ? '#B9B1FF' : '#6C6C6C')
       Text(label)
-        .fontSize(15)
+        .fontSize(12)
         .fontWeight(this.activeTab === index ? FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.activeTab === index ? '#B9B1FF' : '#A0A0A0')
-        .margin({ left: 12 })
+        .margin({ top: 5 })
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
     }
     .width('100%')
-    .padding({ left: 20, top: 14, bottom: 14 })
-    .alignItems(VerticalAlign.Center)
+    .height(68)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
     .backgroundColor(this.activeTab === index ? '#25262B' : '#00000000')
     .onClick(() => { this.activeTab = index })
   }

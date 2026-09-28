@@ -27,9 +27,9 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| contextLength | number? | 模型默认 | 每槽位上下文长度（0 = 使用模型默认） |
+| contextLength | number? | 4096 | 每槽位上下文长度（0 = 自动，最多 4096；可显式提高） |
 | threads | number? | 默认线程数 | 推理线程数 |
-| parallel | number? | 8 | 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个） |
+| parallel | number? | 1 | 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个） |
 | mmprojPath | string? | 空 | mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态） |
 
 ### 2.3 GenerateParams（生成参数）

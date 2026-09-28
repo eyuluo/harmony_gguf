@@ -75,9 +75,6 @@ GenResult RunGeneration(
     llama_context * ctx = state.ctx();
     const llama_vocab * vocab = state.vocab();
 
-    fprintf(stderr, "[gen] seq=%d prompt_len=%zu max_tokens=%d\n",
-            (int) seq_id, params.prompt.size(), params.max_tokens);
-
     if (model == nullptr || ctx == nullptr || vocab == nullptr) {
         return GenResult::Failed;
     }
@@ -249,8 +246,6 @@ GenResult RunGeneration(
             new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
             state.ClearActiveStopFlag();
         }
-        fprintf(stderr, "[gen] i=%d n_past=%d token=%d\n", i, (int) n_past, (int) new_token_id);
-
         if (first_token) {
             t_first = llama_time_us();
             out_stats.ttft_ms = (t_first - t_start) / 1000.0;

@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS: InferenceSettings = {
   topK: 40,
   topP: 0.95,
   repeatPenalty: 1.0,
-  parallel: 8
+  parallel: 1
 };
 
 const PREF_NAME = 'settings';

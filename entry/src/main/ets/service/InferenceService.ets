@@ -71,10 +71,13 @@ export class InferenceService {
         title: record.title,
         messages: restoredMessages,
         status: SESSION_IDLE,
+        createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         pinned: record.pinned,
         persistent: true,
         lastStats: null,
+        totalInputTokens: record.totalInputTokens,
+        totalOutputTokens: record.totalOutputTokens,
         requestId: 0,
         pendingPrompt: ''
       });
@@ -139,10 +142,13 @@ export class InferenceService {
       title: '新对话',
       messages: [],
       status: SESSION_IDLE,
+      createdAt: Date.now(),
       updatedAt: Date.now(),
       pinned: false,
       persistent: false,
       lastStats: null,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
       requestId: 0,
       pendingPrompt: ''
     };
@@ -228,15 +234,18 @@ export class InferenceService {
       title: title,
       messages: messages,
       status: SESSION_RUNNING,
+      createdAt: session.createdAt,
       updatedAt: Date.now(),
       pinned: session.pinned,
       persistent: session.persistent,
       lastStats: session.lastStats,
+      totalInputTokens: session.totalInputTokens,
+      totalOutputTokens: session.totalOutputTokens,
       requestId: 0,
       pendingPrompt: prompt
     });
 
-    if (this.runningCount() >= state.parallel) {
+    if (this.runningCount() > state.parallel) {
       this.updateStatus(sessionId, SESSION_QUEUED);
       return;
     }
@@ -302,10 +311,13 @@ export class InferenceService {
       title: session.title,
       messages: session.messages,
       status: session.status,
+      createdAt: session.createdAt,
       updatedAt: Date.now(),
       pinned: session.pinned,
       persistent: session.persistent,
       lastStats: session.lastStats,
+      totalInputTokens: session.totalInputTokens,
+      totalOutputTokens: session.totalOutputTokens,
       requestId: session.requestId,
       pendingPrompt: session.pendingPrompt
     };
@@ -322,6 +334,8 @@ export class InferenceService {
       }
     } else if (event === 'done' || event === 'stopped') {
       updated.lastStats = data as GenerateStats;
+      updated.totalInputTokens += updated.lastStats.promptTokens;
+      updated.totalOutputTokens += updated.lastStats.generatedTokens;
       updated.status = SESSION_IDLE;
       updated.requestId = 0;
       updated.pendingPrompt = '';
@@ -399,10 +413,13 @@ export class InferenceService {
       title: session.title,
       messages: session.messages,
       status: session.status,
+      createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       pinned: session.pinned,
       persistent: session.persistent,
       lastStats: session.lastStats,
+      totalInputTokens: session.totalInputTokens,
+      totalOutputTokens: session.totalOutputTokens,
       requestId: session.requestId,
       pendingPrompt: session.pendingPrompt
     };
@@ -452,9 +469,11 @@ export class InferenceService {
       await store.saveSession({
         id: session.id,
         title: session.title,
-        createdAt: session.updatedAt,
+        createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        pinned: session.pinned
+        pinned: session.pinned,
+        totalInputTokens: session.totalInputTokens,
+        totalOutputTokens: session.totalOutputTokens
       });
       const messages: MessageRecord[] = [];
       for (let index = 0; index < session.messages.length; index++) {
@@ -465,7 +484,7 @@ export class InferenceService {
           role: message.role,
           content: message.content,
           attachments: message.attachments,
-          createdAt: session.updatedAt + index
+          createdAt: session.createdAt + index
         });
       }
       await store.replaceMessages(session.id, messages);

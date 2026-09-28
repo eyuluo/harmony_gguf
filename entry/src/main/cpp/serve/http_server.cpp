@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -33,13 +34,17 @@ class GenerateChannel {
 public:
     void PushToken(const std::string & text) {
         std::lock_guard<std::mutex> lock(mutex_);
-        tokens_.push_back(text);
-        full_text_ += text;
-        cv_.notify_one();
+        pending_token_ += text;
+        const auto now = std::chrono::steady_clock::now();
+        if (last_flush_.time_since_epoch().count() == 0 ||
+            now - last_flush_ >= std::chrono::milliseconds(50)) {
+            FlushPendingLocked();
+        }
     }
 
     void Finish(inference::GenResult result, const GenerateStats & stats) {
         std::lock_guard<std::mutex> lock(mutex_);
+        FlushPendingLocked();
         result_ = result;
         stats_ = stats;
         finished_ = true;
@@ -81,10 +86,23 @@ public:
     }
 
 private:
+    void FlushPendingLocked() {
+        if (pending_token_.empty()) {
+            return;
+        }
+        tokens_.push_back(std::move(pending_token_));
+        full_text_ += tokens_.back();
+        pending_token_.clear();
+        last_flush_ = std::chrono::steady_clock::now();
+        cv_.notify_one();
+    }
+
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<std::string> tokens_;
     std::string full_text_;
+    std::string pending_token_;
+    std::chrono::steady_clock::time_point last_flush_;
     bool finished_ = false;
     inference::GenResult result_ = inference::GenResult::Failed;
     GenerateStats stats_;

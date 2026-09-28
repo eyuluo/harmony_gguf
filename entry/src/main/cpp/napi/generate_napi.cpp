@@ -1,6 +1,7 @@
 #include <napi/native_api.h>
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -34,6 +35,11 @@ struct GenCallbackData {
     double tokens_per_second;
     int32_t error_code;
     char error_message[512];
+};
+
+struct TokenBatch {
+    std::string text;
+    std::chrono::steady_clock::time_point last_flush;
 };
 
 void FillStats(GenCallbackData * data, const GenerateStats & stats) {
@@ -225,13 +231,30 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     }
 
     // 异步执行：推理置于独立线程（借鉴 llama-server），逐 token / 完成经 TSFN 回调
+    auto token_batch = std::make_shared<TokenBatch>();
+    auto flush_tokens = [cb, token_batch]() {
+        if (!token_batch->text.empty()) {
+            SendToken(cb, token_batch->text.c_str());
+            token_batch->text.clear();
+            token_batch->last_flush = std::chrono::steady_clock::now();
+        }
+    };
+
     bool ok = inference::RunGenerationAsync(
         request_id,
         seq_id,
         stop_flag,
         params,
-        [cb](const char * text) { SendToken(cb, text); },
-        [cb](inference::GenResult result, const GenerateStats & stats) {
+        [token_batch, flush_tokens](const char * text) {
+            token_batch->text += text;
+            const auto now = std::chrono::steady_clock::now();
+            if (token_batch->last_flush.time_since_epoch().count() == 0 ||
+                now - token_batch->last_flush >= std::chrono::milliseconds(50)) {
+                flush_tokens();
+            }
+        },
+        [cb, flush_tokens](inference::GenResult result, const GenerateStats & stats) {
+            flush_tokens();
             if (result == inference::GenResult::Completed) {
                 SendDone(cb, stats);
             } else if (result == inference::GenResult::Aborted) {

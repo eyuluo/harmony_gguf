@@ -28,7 +28,7 @@ export class SettingsService {
     state.topK = saved.topK;
     state.topP = saved.topP;
     state.repeatPenalty = saved.repeatPenalty;
-    state.parallel = saved.parallel;
+    state.parallel = saved.parallel === 8 ? 1 : saved.parallel;
   }
 
   async saveSettings(context: common.Context): Promise<void> {

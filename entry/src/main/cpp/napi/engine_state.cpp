@@ -1,5 +1,6 @@
 #include "engine_state.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <sys/stat.h>
 
@@ -236,10 +237,10 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
 
     // parallel 为每池最大并发槽位数（软上限），槽位按需分配；KV 统一缓冲，总容量 = 每槽位长度 × 2 × parallel
     const uint32_t parallel = config.parallel > 0 ? config.parallel : 1;
-    uint32_t n_ctx_seq = config.context_length;
-    if (n_ctx_seq == 0) {
-        n_ctx_seq = static_cast<uint32_t>(llama_model_n_ctx_train(model));
-    }
+    const uint32_t model_ctx = static_cast<uint32_t>(llama_model_n_ctx_train(model));
+    const uint32_t n_ctx_seq = config.context_length > 0
+        ? std::min(config.context_length, model_ctx)
+        : std::min(model_ctx, 4096u);
 
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.kv_unified = true;                  // 统一 KV 缓冲：seq_id 按需分配（上限 LLAMA_MAX_SEQ），不预分割槽位

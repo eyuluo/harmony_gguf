@@ -104,7 +104,13 @@ add_library(entry SHARED
 
 target_link_libraries(entry PUBLIC libace_napi.z.so)
 
-target_compile_options(entry PRIVATE -fexceptions -frtti -Wno-unused-command-line-argument ${GGML_ARCH_FLAGS})
+target_compile_options(entry PRIVATE
+    -fexceptions
+    -frtti
+    -Wno-unused-command-line-argument
+    ${GGML_ARCH_FLAGS}
+    $<$<CONFIG:Debug>:-O2>
+    $<$<CONFIG:Release>:-O3>)
 
 target_compile_definitions(entry PRIVATE
     _GNU_SOURCE
