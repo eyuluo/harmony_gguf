@@ -21,14 +21,28 @@ export class SettingsService {
     const state = this.state!;
     await SettingsStore.getInstance().init(context);
     const saved = SettingsStore.getInstance().getSettings();
-    state.contextLength = saved.contextLength;
-    state.maxTokens = saved.maxTokens;
-    state.threads = saved.threads;
-    state.temperature = saved.temperature;
-    state.topK = saved.topK;
-    state.topP = saved.topP;
-    state.repeatPenalty = saved.repeatPenalty;
-    state.parallel = saved.parallel === 8 ? 1 : saved.parallel;
+    state.contextLength = this.clampInteger(saved.contextLength, 0, 32768, 0);
+    state.maxTokens = this.clampInteger(saved.maxTokens, 1, 8192, 512);
+    state.threads = this.clampInteger(saved.threads, 0, 32, 0);
+    state.temperature = this.clampNumber(saved.temperature, 0, 2, 0.8);
+    state.topK = this.clampInteger(saved.topK, 1, 200, 40);
+    state.topP = this.clampNumber(saved.topP, 0.01, 1, 0.95);
+    state.repeatPenalty = this.clampNumber(saved.repeatPenalty, 0.5, 2, 1.0);
+    state.parallel = this.clampInteger(saved.parallel === 8 ? 1 : saved.parallel, 1, 8, 1);
+  }
+
+  private clampInteger(value: number, min: number, max: number, fallback: number): number {
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, Math.trunc(value)));
+  }
+
+  private clampNumber(value: number, min: number, max: number, fallback: number): number {
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, value));
   }
 
   async saveSettings(context: common.Context): Promise<void> {

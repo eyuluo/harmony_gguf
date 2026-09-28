@@ -31,14 +31,27 @@ export class ModelService {
     const context = this.context!;
     await ModelStore.getInstance().init(context);
     const stored = ModelStore.getInstance().getModels();
-    const items: ModelItem[] = [];
-    for (const model of stored) {
+    const metadata: Array<string | null> = await Promise.all(stored.map(async (model: StoredModelInfo) => {
       const needsMetadataRefresh = model.contextLength === 0 || model.quantization.startsWith('(guessed)') ||
         model.quantization.indexOf('all F32') >= 0;
-      if (needsMetadataRefresh && this.isFileExists(model.path)) {
+      if (!needsMetadataRefresh || !this.isFileExists(model.path)) {
+        return null;
+      }
+      try {
+        return await taskpool.execute(parseModelTask, model.path) as string;
+      } catch (error) {
+        hilog.warn(DOMAIN, TAG, 'refresh model metadata failed: %{public}s', String(error));
+        return null;
+      }
+    }));
+    const items: ModelItem[] = [];
+    for (let index = 0; index < stored.length; index++) {
+      const model = stored[index];
+      const result = metadata[index];
+      if (result !== null) {
+        const parts = result.split('|');
+        const contextLength = Number(parts[3]);
         try {
-          const parts = (await taskpool.execute(parseModelTask, model.path) as string).split('|');
-          const contextLength = Number(parts[3]);
           if (parts[1] !== model.quantization || (model.contextLength === 0 && contextLength > 0)) {
             model.quantization = parts[1];
             if (model.contextLength === 0 && contextLength > 0) {
@@ -47,7 +60,7 @@ export class ModelService {
             await ModelStore.getInstance().saveModel(model);
           }
         } catch (error) {
-          hilog.warn(DOMAIN, TAG, 'refresh model metadata failed: %{public}s', String(error));
+          hilog.warn(DOMAIN, TAG, 'save refreshed model metadata failed: %{public}s', String(error));
         }
       }
       items.push({

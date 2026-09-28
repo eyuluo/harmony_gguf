@@ -15,18 +15,33 @@ static napi_value StartServer(napi_env env, napi_callback_info info) {
 
     ServerConfig config;
     if (argc >= 1) {
+        if (!napi_util::IsObject(env, args[0])) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "config must be an object");
+            return nullptr;
+        }
         std::string host;
-        if (napi_util::GetOptionalString(env, args[0], "host", host) && !host.empty()) {
+        if (napi_util::HasProperty(env, args[0], "host") &&
+            (!napi_util::GetOptionalString(env, args[0], "host", host) || host.empty())) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "host must be a non-empty string");
+            return nullptr;
+        }
+        if (!host.empty()) {
             config.host = host;
         }
         int32_t port = config.port;
-        if (napi_util::GetOptionalInt32(env, args[0], "port", port)) {
-            config.port = port;
+        if (napi_util::HasProperty(env, args[0], "port") &&
+            (!napi_util::GetOptionalInt32(env, args[0], "port", port) || port <= 0 || port > 65535)) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "port must be between 1 and 65535");
+            return nullptr;
         }
+        config.port = port;
         std::string api_key;
-        if (napi_util::GetOptionalString(env, args[0], "apiKey", api_key)) {
-            config.api_key = api_key;
+        if (napi_util::HasProperty(env, args[0], "apiKey") &&
+            !napi_util::GetOptionalString(env, args[0], "apiKey", api_key)) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "apiKey must be a string");
+            return nullptr;
         }
+        config.api_key = api_key;
     }
 
     int32_t code = HttpServer::Instance().Start(config);

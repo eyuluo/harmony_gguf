@@ -22,6 +22,9 @@ export struct SessionList {
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       Column() {
+        Text(this.appState.sessionVersion >= 0 ? '' : '')
+          .width(0)
+          .height(0)
         Row() {
           Column() {
             Text('对话')
@@ -64,7 +67,7 @@ export struct SessionList {
             ListItem() {
               this.sessionItem(session)
             }
-          }, (session: Session) => `${session.id}:${session.title}:${session.status}:${session.createdAt}:${session.updatedAt}:${session.pinned}:${session.persistent}`)
+          }, (session: Session) => String(session.id))
         }
         .layoutWeight(1)
         .width('100%')

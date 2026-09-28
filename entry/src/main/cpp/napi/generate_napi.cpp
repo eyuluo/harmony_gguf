@@ -85,7 +85,11 @@ void GenerateJsCallback(napi_env env, napi_value js_cb, void * /*context*/, void
     napi_value argv[2] = { js_event, js_data };
     napi_value undefined = nullptr;
     napi_get_undefined(env, &undefined);
-    napi_call_function(env, undefined, js_cb, 2, argv, nullptr);
+    napi_status status = napi_call_function(env, undefined, js_cb, 2, argv, nullptr);
+    if (status != napi_ok) {
+        napi_value exception = nullptr;
+        napi_get_and_clear_last_exception(env, &exception);
+    }
 
     delete cb;
 }
@@ -95,7 +99,9 @@ void SendToken(TsFn * cb, const char * text) {
     std::memset(data, 0, sizeof(*data));
     data->event = EVENT_TOKEN;
     strncpy(data->text, text, sizeof(data->text) - 1);
-    cb->Call(data);
+    if (cb->Call(data) != napi_ok) {
+        delete data;
+    }
 }
 
 void SendDone(TsFn * cb, const GenerateStats & stats) {
@@ -103,7 +109,9 @@ void SendDone(TsFn * cb, const GenerateStats & stats) {
     std::memset(data, 0, sizeof(*data));
     data->event = EVENT_DONE;
     FillStats(data, stats);
-    cb->Call(data);
+    if (cb->Call(data) != napi_ok) {
+        delete data;
+    }
 }
 
 void SendStopped(TsFn * cb, const GenerateStats & stats) {
@@ -111,7 +119,9 @@ void SendStopped(TsFn * cb, const GenerateStats & stats) {
     std::memset(data, 0, sizeof(*data));
     data->event = EVENT_STOPPED;
     FillStats(data, stats);
-    cb->Call(data);
+    if (cb->Call(data) != napi_ok) {
+        delete data;
+    }
 }
 
 void SendError(TsFn * cb, int32_t code, const char * message) {
@@ -120,7 +130,9 @@ void SendError(TsFn * cb, int32_t code, const char * message) {
     data->event = EVENT_ERROR;
     data->error_code = code;
     snprintf(data->error_message, sizeof(data->error_message), "%s", message);
-    cb->Call(data);
+    if (cb->Call(data) != napi_ok) {
+        delete data;
+    }
 }
 
 } // namespace
@@ -208,6 +220,11 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     if (js_images != nullptr) {
         bool is_array = false;
         napi_is_array(env, js_images, &is_array);
+        if (!is_array) {
+            EngineState::Instance().EndGenerate(request_id, seq_id);
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "images must be an array");
+            return nullptr;
+        }
         if (is_array) {
             uint32_t img_count = 0;
             napi_get_array_length(env, js_images, &img_count);
@@ -215,9 +232,12 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
                 napi_value item = nullptr;
                 napi_get_element(env, js_images, i, &item);
                 std::string path;
-                if (item != nullptr && napi_util::GetString(env, item, path) && !path.empty()) {
-                    params.images.push_back(std::move(path));
+                if (item == nullptr || !napi_util::GetString(env, item, path) || path.empty()) {
+                    EngineState::Instance().EndGenerate(request_id, seq_id);
+                    napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "images must contain non-empty strings");
+                    return nullptr;
                 }
+                params.images.push_back(std::move(path));
             }
         }
     }

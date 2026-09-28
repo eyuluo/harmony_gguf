@@ -63,7 +63,8 @@ export class InferenceService {
         restoredMessages.push({
           role: message.role,
           content: message.content,
-          attachments: message.attachments
+          attachments: message.attachments,
+          contentParts: []
         });
       }
       restored.push({
@@ -91,7 +92,10 @@ export class InferenceService {
 
   async loadModel(model: StoredModelInfo, config: LoadConfig): Promise<void> {
     const state = this.state!;
-    if (state.loading || state.activeModelPath === model.path && state.modelId > 0) {
+    if (state.loading) {
+      return;
+    }
+    if (state.activeModelPath === model.path && state.modelId > 0 && this.sameLoadConfig(state.loadedConfig, config)) {
       return;
     }
     state.loading = true;
@@ -99,7 +103,7 @@ export class InferenceService {
     state.loadFailed = false;
     try {
       const modelId = await taskpool.execute(loadModelTask, model.path, config.contextLength ?? 0,
-        config.threads ?? 0, config.parallel ?? 8, config.mmprojPath ?? '') as number;
+        config.threads ?? 0, config.parallel ?? 1, config.mmprojPath ?? '') as number;
       state.modelId = modelId;
       state.modelInfo = model;
       state.activeModelPath = model.path;
@@ -218,8 +222,8 @@ export class InferenceService {
     if (session.status === SESSION_RUNNING || session.status === SESSION_QUEUED) {
       return;
     }
-    const userMessage: SessionMessage = { role: 'user', content: prompt, attachments: attachments };
-    const assistantMessage: SessionMessage = { role: 'assistant', content: '', attachments: [] };
+    const userMessage: SessionMessage = { role: 'user', content: prompt, attachments: attachments, contentParts: [] };
+    const assistantMessage: SessionMessage = { role: 'assistant', content: '', attachments: [], contentParts: [] };
     const messages = session.messages.concat([userMessage, assistantMessage]);
     let title = session.title;
     if (title === '新对话' && session.messages.length === 0) {
@@ -278,8 +282,9 @@ export class InferenceService {
         }
       }
     }
+    const generationPrompt = session === null ? prompt : this.buildPrompt(session, prompt);
     try {
-      const requestId = testNapi.generate(prompt, {
+      const requestId = testNapi.generate(generationPrompt, {
         maxTokens: state.maxTokens,
         temperature: state.temperature,
         topK: state.topK,
@@ -325,14 +330,20 @@ export class InferenceService {
       const last = updated.messages.length - 1;
       if (last >= 0) {
         const nextMessages = updated.messages.slice();
+        const message = nextMessages[last];
+        const parts = message.contentParts.slice();
+        const text = (data as TokenData).text;
+        parts.push(text);
         nextMessages[last] = {
           role: 'assistant',
-          content: nextMessages[last].content + (data as TokenData).text,
-          attachments: nextMessages[last].attachments
+          content: message.content + text,
+          attachments: message.attachments,
+          contentParts: parts
         };
         updated.messages = nextMessages;
       }
     } else if (event === 'done' || event === 'stopped') {
+      this.finalizeStreamingMessage(updated);
       updated.lastStats = data as GenerateStats;
       updated.totalInputTokens += updated.lastStats.promptTokens;
       updated.totalOutputTokens += updated.lastStats.generatedTokens;
@@ -340,6 +351,7 @@ export class InferenceService {
       updated.requestId = 0;
       updated.pendingPrompt = '';
     } else if (event === 'error') {
+      this.finalizeStreamingMessage(updated);
       updated.status = SESSION_FAILED;
       updated.requestId = 0;
       updated.pendingPrompt = '';
@@ -358,6 +370,53 @@ export class InferenceService {
     }
     this.updateStatus(queued.id, SESSION_RUNNING);
     this.startGenerate(queued.id, queued.pendingPrompt);
+  }
+
+  private buildPrompt(session: Session, currentPrompt: string): string {
+    if (session.messages.length <= 2) {
+      return currentPrompt;
+    }
+    const lines: string[] = [];
+    for (let index = 0; index < session.messages.length - 2; index++) {
+      const message = session.messages[index];
+      if (message.content.length === 0) {
+        continue;
+      }
+      const role = message.role === 'user' ? '用户' : '助手';
+      lines.push(`${role}：${message.content}`);
+    }
+    lines.push(`用户：${currentPrompt}`);
+    lines.push('助手：');
+    return lines.join('\n');
+  }
+
+  private finalizeStreamingMessage(session: Session): void {
+    const last = session.messages.length - 1;
+    if (last < 0) {
+      return;
+    }
+    const message = session.messages[last];
+    if (message.contentParts.length === 0) {
+      return;
+    }
+    const messages = session.messages.slice();
+    messages[last] = {
+      role: message.role,
+      content: message.contentParts.join(''),
+      attachments: message.attachments,
+      contentParts: []
+    };
+    session.messages = messages;
+  }
+
+  private sameLoadConfig(previous: LoadConfig | null, next: LoadConfig): boolean {
+    if (previous === null) {
+      return false;
+    }
+    return (previous.contextLength ?? 0) === (next.contextLength ?? 0) &&
+      (previous.threads ?? 0) === (next.threads ?? 0) &&
+      (previous.parallel ?? 1) === (next.parallel ?? 1) &&
+      (previous.mmprojPath ?? '') === (next.mmprojPath ?? '');
   }
 
   private runningCount(): number {
@@ -454,6 +513,7 @@ export class InferenceService {
       next.push(s.id === session.id ? session : s);
     }
     state.sessions = next;
+    state.sessionVersion += 1;
     if (persist && session.persistent) {
       this.persistSession(session);
     }

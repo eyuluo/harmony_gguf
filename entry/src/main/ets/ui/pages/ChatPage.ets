@@ -45,6 +45,9 @@ export struct ChatPage {
   @Builder
   detailArea() {
     Column() {
+      Text(this.appState.sessionVersion >= 0 ? '' : '')
+        .width(0)
+        .height(0)
       this.detailTopBar()
       if (this.appState.loading) {
         LoadingState({ subtitle: this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候' })
@@ -168,7 +171,7 @@ export struct ChatPage {
           }
           ForEach(this.currentSession()!.messages, (message: SessionMessage) => {
             this.messageBubble(message)
-          }, (message: SessionMessage) => message.role + message.content)
+          }, (_message: SessionMessage, index: number) => String(index))
         }
         .width('100%')
       }
@@ -202,11 +205,11 @@ export struct ChatPage {
           }
           .width('100%')
         }
-        Text(message.content.length > 0 ? message.content : '…')
-          .fontSize(15)
-          .fontColor(message.content.length > 0 ? '#E6E6E6' : '#6C6C6C')
-          .lineHeight(22)
-          .width('100%')
+         Text(message.content.length > 0 ? message.content : '…')
+           .fontSize(15)
+           .fontColor(message.content.length > 0 ? '#E6E6E6' : '#6C6C6C')
+           .lineHeight(22)
+           .width('100%')
       }
       .layoutWeight(1)
     }

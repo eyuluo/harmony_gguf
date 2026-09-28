@@ -5,6 +5,7 @@ export interface SessionMessage {
   role: string;
   content: string;
   attachments: string[];
+  contentParts: string[];
 }
 
 export interface Session {
@@ -63,6 +64,7 @@ export class AppState {
   returnTab: number = 0;
 
   sessions: Session[] = [];
+  sessionVersion: number = 0;
   activeSessionId: number = 0;
   showSessionList: boolean = false;
   nextSessionId: number = 1;

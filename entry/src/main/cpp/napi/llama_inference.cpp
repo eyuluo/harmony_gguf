@@ -60,6 +60,27 @@ private:
     llama_batch batch_;
 };
 
+class ThreadGuard {
+public:
+    ThreadGuard(llama_context * ctx, int32_t requested, int32_t fallback)
+        : ctx_(ctx), restore_(requested > 0 && fallback > 0), fallback_(fallback) {
+        if (restore_) {
+            llama_set_n_threads(ctx_, requested, requested);
+        }
+    }
+
+    ~ThreadGuard() {
+        if (restore_) {
+            llama_set_n_threads(ctx_, fallback_, fallback_);
+        }
+    }
+
+private:
+    llama_context * ctx_;
+    bool restore_;
+    int32_t fallback_;
+};
+
 } // namespace
 
 GenResult RunGeneration(
@@ -77,10 +98,6 @@ GenResult RunGeneration(
 
     if (model == nullptr || ctx == nullptr || vocab == nullptr) {
         return GenResult::Failed;
-    }
-
-    if (params.threads > 0) {
-        llama_set_n_threads(ctx, params.threads, params.threads);
     }
 
     // 生效的停止条件：外部 should_stop + per-request 停止标志 + 全局停止
@@ -169,6 +186,7 @@ GenResult RunGeneration(
         const int32_t n_batch = static_cast<int32_t>(llama_n_batch(ctx));
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
+            ThreadGuard threads(ctx, params.threads, state.context_threads());
             state.SetActiveStopFlag(stop_flag.get());
             res = mtmd_helper_eval_chunks(mctx, ctx, chunks, 0, seq_id, n_batch, true, &n_past);
             state.ClearActiveStopFlag();
@@ -213,6 +231,7 @@ GenResult RunGeneration(
 
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
+            ThreadGuard threads(ctx, params.threads, state.context_threads());
             state.SetActiveStopFlag(stop_flag.get());
             const int32_t rc = llama_decode(ctx, prompt_batch.get());
             state.ClearActiveStopFlag();
@@ -242,6 +261,7 @@ GenResult RunGeneration(
 
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
+            ThreadGuard threads(ctx, params.threads, state.context_threads());
             state.SetActiveStopFlag(stop_flag.get());
             new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
             state.ClearActiveStopFlag();
@@ -275,6 +295,7 @@ GenResult RunGeneration(
         int32_t rc = 0;
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
+            ThreadGuard threads(ctx, params.threads, state.context_threads());
             state.SetActiveStopFlag(stop_flag.get());
             rc = llama_decode(ctx, one.get());
             state.ClearActiveStopFlag();
@@ -327,8 +348,8 @@ bool RunGenerationAsync(
     auto run = [request_id, seq_id, stop_flag, params, on_token, on_done, should_stop]() {
         GenerateStats stats;
         GenResult result = RunGeneration(seq_id, stop_flag, params, on_token, should_stop, stats);
-        EngineState::Instance().EndGenerate(request_id, seq_id);
         on_done(result, stats);
+        EngineState::Instance().EndGenerate(request_id, seq_id);
     };
 
     try {

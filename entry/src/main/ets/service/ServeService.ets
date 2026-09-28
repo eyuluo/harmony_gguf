@@ -67,6 +67,11 @@ export class ServeService {
     }
   }
 
+  dispose(): void {
+    this.stopAutoCheck();
+    this.httpRequest.destroy();
+  }
+
   checkHealth(): void {
     const state = this.state!;
     if (!state.serverRunning) {

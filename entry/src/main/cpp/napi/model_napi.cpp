@@ -276,10 +276,18 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
         int32_t threads = 0;
         uint32_t parallel = config.parallel;
         std::string mmproj_path;
-        napi_util::GetOptionalUint32(env, args[1], "contextLength", context_length);
-        napi_util::GetOptionalInt32(env, args[1], "threads", threads);
-        napi_util::GetOptionalUint32(env, args[1], "parallel", parallel);
-        napi_util::GetOptionalString(env, args[1], "mmprojPath", mmproj_path);
+        if ((napi_util::HasProperty(env, args[1], "contextLength") &&
+             !napi_util::GetOptionalUint32(env, args[1], "contextLength", context_length)) ||
+            (napi_util::HasProperty(env, args[1], "threads") &&
+             !napi_util::GetOptionalInt32(env, args[1], "threads", threads)) ||
+            (napi_util::HasProperty(env, args[1], "parallel") &&
+             !napi_util::GetOptionalUint32(env, args[1], "parallel", parallel)) ||
+            (napi_util::HasProperty(env, args[1], "mmprojPath") &&
+             !napi_util::GetOptionalString(env, args[1], "mmprojPath", mmproj_path)) ||
+            threads < 0 || parallel == 0) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "invalid load config");
+            return nullptr;
+        }
         config.context_length = context_length;
         config.threads = threads;
         config.parallel = parallel;

@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -32,6 +33,8 @@ namespace {
 // 借鉴 llama-server：推理与请求线程解耦，decode 不在 HTTP 线程里执行。
 class GenerateChannel {
 public:
+    explicit GenerateChannel(bool keep_full_text) : keep_full_text_(keep_full_text) {}
+
     void PushToken(const std::string & text) {
         std::lock_guard<std::mutex> lock(mutex_);
         pending_token_ += text;
@@ -91,7 +94,9 @@ private:
             return;
         }
         tokens_.push_back(std::move(pending_token_));
-        full_text_ += tokens_.back();
+        if (keep_full_text_) {
+            full_text_ += tokens_.back();
+        }
         pending_token_.clear();
         last_flush_ = std::chrono::steady_clock::now();
         cv_.notify_one();
@@ -106,6 +111,7 @@ private:
     bool finished_ = false;
     inference::GenResult result_ = inference::GenResult::Failed;
     GenerateStats stats_;
+    bool keep_full_text_ = true;
 };
 
 // 阻塞获取一个空闲槽位，失败返回 false（服务停止或模型未加载）
@@ -116,27 +122,56 @@ bool AcquireSlot(llama_seq_id & seq_id, std::shared_ptr<std::atomic_bool> & stop
 }
 
 // 从请求 JSON 提取生成参数
-GenerateParams ParseGenerateParams(const json & body, const std::string & prompt) {
-    GenerateParams params;
+bool ParseGenerateParams(const json & body, const std::string & prompt, GenerateParams & params) {
     params.prompt = prompt;
 
-    if (body.contains("temperature") && body["temperature"].is_number()) {
+    if (body.contains("temperature")) {
+        if (!body["temperature"].is_number()) {
+            return false;
+        }
         params.temperature = body["temperature"].get<float>();
     }
-    if (body.contains("top_k") && body["top_k"].is_number()) {
+    if (body.contains("top_k")) {
+        if (!body["top_k"].is_number_integer()) {
+            return false;
+        }
         params.top_k = body["top_k"].get<int32_t>();
     }
-    if (body.contains("top_p") && body["top_p"].is_number()) {
+    if (body.contains("top_p")) {
+        if (!body["top_p"].is_number()) {
+            return false;
+        }
         params.top_p = body["top_p"].get<float>();
     }
-    if (body.contains("repeat_penalty") && body["repeat_penalty"].is_number()) {
+    if (body.contains("repeat_penalty")) {
+        if (!body["repeat_penalty"].is_number()) {
+            return false;
+        }
         params.repeat_penalty = body["repeat_penalty"].get<float>();
     }
-    if (body.contains("max_tokens") && body["max_tokens"].is_number()) {
+    if (body.contains("max_tokens")) {
+        if (!body["max_tokens"].is_number_integer()) {
+            return false;
+        }
         params.max_tokens = body["max_tokens"].get<int32_t>();
     }
 
-    return params;
+    return std::isfinite(params.temperature) && params.temperature >= 0.0f &&
+        params.top_k > 0 && std::isfinite(params.top_p) && params.top_p > 0.0f && params.top_p <= 1.0f &&
+        std::isfinite(params.repeat_penalty) && params.repeat_penalty > 0.0f &&
+        params.max_tokens > 0 && params.max_tokens <= 8192;
+}
+
+bool ParseStreamFlag(const json & body, bool & stream) {
+    if (!body.contains("stream")) {
+        stream = false;
+        return true;
+    }
+    if (!body["stream"].is_boolean()) {
+        return false;
+    }
+    stream = body["stream"].get<bool>();
+    return true;
 }
 
 // 架构 → 聊天模板名映射（与 registry/models.json 的 chatTemplate 字段对齐）
@@ -160,17 +195,13 @@ const char * ChatTemplateForArch(const std::string & arch) {
 
 // 解析当前模型应使用的聊天模板：优先 GGUF 内置模板，其次按架构匹配，最终回退 chatml
 std::string ResolveChatTemplate() {
-    llama_model * model = EngineState::Instance().model();
-    if (model != nullptr) {
-        const char * builtin = llama_model_chat_template(model, nullptr);
-        if (builtin != nullptr && builtin[0] != '\0') {
-            return std::string(builtin);
-        }
-        char arch[128] = {0};
-        int32_t len = llama_model_meta_val_str(model, "general.architecture", arch, sizeof(arch));
-        if (len > 0) {
-            return ChatTemplateForArch(std::string(arch, static_cast<size_t>(len)));
-        }
+    const std::string builtin = EngineState::Instance().ModelChatTemplate();
+    if (!builtin.empty()) {
+        return builtin;
+    }
+    const std::string arch = EngineState::Instance().ModelMetaString("general.architecture");
+    if (!arch.empty()) {
+        return ChatTemplateForArch(arch);
     }
     return "chatml";
 }
@@ -181,8 +212,9 @@ std::string BuildChatPrompt(const std::string & tmpl, const json & messages) {
     std::vector<std::string> contents;
 
     for (const auto & m : messages) {
-        if (!m.contains("role") || !m.contains("content")) {
-            continue;
+        if (!m.is_object() || !m.contains("role") || !m.contains("content") ||
+            !m["role"].is_string() || !m["content"].is_string()) {
+            return "";
         }
         roles.emplace_back(m["role"].get<std::string>());
         contents.emplace_back(m["content"].get<std::string>());
@@ -280,16 +312,11 @@ json BuildCompletionResponse(const std::string & text, const GenerateStats & sta
 
 // 当前加载模型的 id（architecture）
 std::string CurrentModelId() {
-    llama_model * model = EngineState::Instance().model();
-    if (model == nullptr) {
+    if (!EngineState::Instance().IsLoaded()) {
         return "";
     }
-    char buf[128] = {0};
-    int32_t len = llama_model_meta_val_str(model, "general.architecture", buf, sizeof(buf));
-    if (len <= 0) {
-        return "model";
-    }
-    return std::string(buf, static_cast<size_t>(len));
+    const std::string architecture = EngineState::Instance().ModelMetaString("general.architecture");
+    return architecture.empty() ? "model" : architecture;
 }
 
 // 鉴权校验，失败返回 true（需要拒绝）
@@ -317,7 +344,15 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
         return;
     }
 
-    auto chan = std::make_shared<GenerateChannel>();
+    auto write_event = [&](const std::string & event) {
+        if (!sink.write(event.data(), event.size())) {
+            stop_flag->store(true, std::memory_order_relaxed);
+            return false;
+        }
+        return true;
+    };
+
+    auto chan = std::make_shared<GenerateChannel>(false);
     bool ok = inference::RunGenerationAsync(
         id, seq_id, stop_flag, params,
         [chan](const char * text) { chan->PushToken(text); },
@@ -333,12 +368,16 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
     std::string token;
     while (chan->NextToken(token)) {
         std::string data = "data: " + make_chunk(token).dump() + "\n\n";
-        sink.write(data.data(), data.size());
+        if (!write_event(data)) {
+            return;
+        }
     }
 
     if (chan->result() == inference::GenResult::Failed) {
         std::string err = "data: {\"error\":\"generation failed\"}\n\n";
-        sink.write(err.data(), err.size());
+        if (!write_event(err)) {
+            return;
+        }
     }
 
     const GenerateStats stats = chan->stats();
@@ -352,10 +391,12 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
         } }
     };
     std::string usage = "data: " + usage_chunk.dump() + "\n\n";
-    sink.write(usage.data(), usage.size());
+    if (!write_event(usage)) {
+        return;
+    }
 
     std::string done = "data: [DONE]\n\n";
-    sink.write(done.data(), done.size());
+    write_event(done);
 }
 
 // 非流式生成：一次性生成并写回响应，响应结构由 make_response 决定
@@ -370,7 +411,7 @@ void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
         return;
     }
 
-    auto chan = std::make_shared<GenerateChannel>();
+    auto chan = std::make_shared<GenerateChannel>(true);
     bool ok = inference::RunGenerationAsync(
         id, seq_id, stop_flag, params,
         [chan](const char * text) { chan->PushToken(text); },
@@ -406,8 +447,17 @@ int32_t HttpServer::Start(const ServerConfig & config) {
     if (running_) {
         return error_code_value(ErrorCode::InvalidState);
     }
+    if (thread_.joinable()) {
+        thread_.join();
+        delete static_cast<httplib::Server *>(server_);
+        server_ = nullptr;
+    }
 
     config_ = config;
+
+    if (config_.port <= 0 || config_.port > 65535 || config_.host.empty()) {
+        return error_code_value(ErrorCode::InvalidArgument);
+    }
 
     auto * svr = new httplib::Server();
 
@@ -456,11 +506,26 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
 
-        GenerateParams params = ParseGenerateParams(body, body["prompt"].get<std::string>());
-        bool stream = body.value("stream", false);
+        GenerateParams params;
+        bool stream = false;
+        try {
+            if (!ParseGenerateParams(body, body["prompt"].get<std::string>(), params) ||
+                !ParseStreamFlag(body, stream)) {
+                res.status = 400;
+                res.set_content("{\"error\":\"invalid generation parameters\"}", "application/json");
+                return;
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\":\"invalid generation parameters\"}", "application/json");
+            return;
+        }
         std::string model_id = CurrentModelId();
 
         if (stream) {
+            res.set_header("Cache-Control", "no-cache");
+            res.set_header("Connection", "keep-alive");
+            res.set_header("X-Accel-Buffering", "no");
             res.set_chunked_content_provider("text/event-stream",
                 [params](size_t, httplib::DataSink & sink) -> bool {
                     RunStreamGeneration(params, sink, [](const std::string & t) {
@@ -491,10 +556,16 @@ int32_t HttpServer::Start(const ServerConfig & config) {
         }
 
         std::string prompt;
-        if (body.contains("messages") && body["messages"].is_array()) {
-            prompt = BuildChatPrompt(ResolveChatTemplate(), body["messages"]);
-        } else if (body.contains("prompt") && body["prompt"].is_string()) {
-            prompt = body["prompt"].get<std::string>();
+        try {
+            if (body.contains("messages") && body["messages"].is_array()) {
+                prompt = BuildChatPrompt(ResolveChatTemplate(), body["messages"]);
+            } else if (body.contains("prompt") && body["prompt"].is_string()) {
+                prompt = body["prompt"].get<std::string>();
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\":\"invalid messages\"}", "application/json");
+            return;
         }
 
         if (prompt.empty()) {
@@ -503,11 +574,25 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
 
-        GenerateParams params = ParseGenerateParams(body, prompt);
-        bool stream = body.value("stream", false);
+        GenerateParams params;
+        bool stream = false;
+        try {
+            if (!ParseGenerateParams(body, prompt, params) || !ParseStreamFlag(body, stream)) {
+                res.status = 400;
+                res.set_content("{\"error\":\"invalid generation parameters\"}", "application/json");
+                return;
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\":\"invalid generation parameters\"}", "application/json");
+            return;
+        }
         std::string model_id = CurrentModelId();
 
         if (stream) {
+            res.set_header("Cache-Control", "no-cache");
+            res.set_header("Connection", "keep-alive");
+            res.set_header("X-Accel-Buffering", "no");
             res.set_chunked_content_provider("text/event-stream",
                 [params](size_t, httplib::DataSink & sink) -> bool {
                     RunStreamGeneration(params, sink, [](const std::string & t) {
@@ -538,26 +623,35 @@ int32_t HttpServer::Start(const ServerConfig & config) {
         }
     });
 
+    if (!svr->bind_to_port(config_.host, config_.port)) {
+        delete svr;
+        return error_code_value(ErrorCode::InvalidState);
+    }
+
     // listen 线程
     const std::string host = config_.host;
     const int port = config_.port;
-    thread_ = std::thread([svr, host, port]() {
-        svr->listen(host.c_str(), port);
-    });
-
     server_ = svr;
     running_ = true;
+    thread_ = std::thread([this, svr, host, port]() {
+        (void)host;
+        (void)port;
+        svr->listen_after_bind();
+        running_ = false;
+        EngineState::Instance().NotifySlotWaiters();
+    });
 
     return error_code_value(ErrorCode::Ok);
 }
 
 void HttpServer::Stop() {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!running_) {
+    if (!running_ && !thread_.joinable()) {
         return;
     }
 
     running_ = false;
+    EngineState::Instance().NotifySlotWaiters();
 
     auto * svr = static_cast<httplib::Server *>(server_);
     if (svr != nullptr) {

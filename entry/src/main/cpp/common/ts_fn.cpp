@@ -11,7 +11,7 @@ TsFn::TsFn(napi_env env, napi_value func, const char * name, JsCall js_call) {
         func,
         nullptr,
         resource_name,
-        0,    // 无界队列
+        32,   // 有界队列，避免 JS 线程阻塞时无限积压
         1,    // 初始线程数
         nullptr,
         nullptr,
@@ -31,11 +31,11 @@ TsFn::~TsFn() {
     }
 }
 
-void TsFn::Call(void * data) {
+napi_status TsFn::Call(void * data) {
     if (tsfn_ == nullptr) {
-        return;
+        return napi_closing;
     }
-    napi_call_threadsafe_function(tsfn_, data, napi_tsfn_nonblocking);
+    return napi_call_threadsafe_function(tsfn_, data, napi_tsfn_nonblocking);
 }
 
 void TsFn::Release() {

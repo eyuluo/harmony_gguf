@@ -46,17 +46,22 @@ export class SessionStore {
     if (this.initialized) {
       return;
     }
-    const config: relationalStore.StoreConfig = {
-      name: DB_NAME,
-      securityLevel: relationalStore.SecurityLevel.S1
-    };
-    this.store = await relationalStore.getRdbStore(context, config);
-    await this.createTables();
-    this.initialized = true;
+    try {
+      const config: relationalStore.StoreConfig = {
+        name: DB_NAME,
+        securityLevel: relationalStore.SecurityLevel.S1
+      };
+      this.store = await relationalStore.getRdbStore(context, config);
+      await this.createTables();
+      this.initialized = true;
+    } catch (error) {
+      throw new Error('初始化会话数据库失败: ' + String(error));
+    }
   }
 
   private async createTables(): Promise<void> {
-    await this.store!.executeSql(
+    try {
+      await this.store!.executeSql(
       'CREATE TABLE IF NOT EXISTS session (' +
       'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
       'title TEXT NOT NULL, ' +
@@ -66,7 +71,7 @@ export class SessionStore {
       'total_input_tokens INTEGER NOT NULL DEFAULT 0, ' +
       'total_output_tokens INTEGER NOT NULL DEFAULT 0)'
     );
-    await this.store!.executeSql(
+      await this.store!.executeSql(
       'CREATE TABLE IF NOT EXISTS message (' +
       'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
       'session_id INTEGER NOT NULL, ' +
@@ -75,158 +80,204 @@ export class SessionStore {
       'attachments TEXT NOT NULL DEFAULT \'[]\', ' +
       'created_at INTEGER NOT NULL)'
     );
-    try {
-      await this.store!.executeSql('ALTER TABLE session ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+      try {
+        await this.store!.executeSql('ALTER TABLE session ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+      } catch (error) {
+        String(error);
+      }
+      try {
+        await this.store!.executeSql('ALTER TABLE session ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0');
+      } catch (error) {
+        String(error);
+      }
+      try {
+        await this.store!.executeSql('ALTER TABLE session ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0');
+      } catch (error) {
+        String(error);
+      }
+      try {
+        await this.store!.executeSql('ALTER TABLE message ADD COLUMN attachments TEXT NOT NULL DEFAULT \'[]\'');
+      } catch (error) {
+        String(error);
+      }
     } catch (error) {
-      String(error);
-    }
-    try {
-      await this.store!.executeSql('ALTER TABLE session ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0');
-    } catch (error) {
-      String(error);
-    }
-    try {
-      await this.store!.executeSql('ALTER TABLE session ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0');
-    } catch (error) {
-      String(error);
-    }
-    try {
-      await this.store!.executeSql('ALTER TABLE message ADD COLUMN attachments TEXT NOT NULL DEFAULT \'[]\'');
-    } catch (error) {
-      String(error);
+      throw new Error('创建会话表失败: ' + String(error));
     }
   }
 
   // 创建会话，返回会话 id
   async createSession(title: string): Promise<number> {
-    const now = Date.now();
-    const values: relationalStore.ValuesBucket = {
-      'title': title.length > 0 ? title : '新会话',
-      'created_at': now,
-      'updated_at': now
-    };
-    return await this.store!.insert('session', values);
+    try {
+      const now = Date.now();
+      const values: relationalStore.ValuesBucket = {
+        'title': title.length > 0 ? title : '新会话',
+        'created_at': now,
+        'updated_at': now
+      };
+      return await this.store!.insert('session', values);
+    } catch (error) {
+      throw new Error('创建会话失败: ' + String(error));
+    }
   }
 
   // 会话列表（按创建时间倒序）
   async listSessions(): Promise<SessionRecord[]> {
-    const predicates = new relationalStore.RdbPredicates('session');
-    predicates.orderByDesc('created_at');
-    const resultSet = await this.store!.query(predicates);
-    const sessions: SessionRecord[] = [];
-    while (resultSet.goToNextRow()) {
-      sessions.push({
-        id: resultSet.getLong(resultSet.getColumnIndex('id')),
-        title: resultSet.getString(resultSet.getColumnIndex('title')),
-        createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
-        updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
-        pinned: resultSet.getLong(resultSet.getColumnIndex('pinned')) !== 0,
-        totalInputTokens: resultSet.getLong(resultSet.getColumnIndex('total_input_tokens')),
-        totalOutputTokens: resultSet.getLong(resultSet.getColumnIndex('total_output_tokens'))
-      });
+    try {
+      const predicates = new relationalStore.RdbPredicates('session');
+      predicates.orderByDesc('created_at');
+      const resultSet = await this.store!.query(predicates);
+      const sessions: SessionRecord[] = [];
+      while (resultSet.goToNextRow()) {
+        sessions.push({
+          id: resultSet.getLong(resultSet.getColumnIndex('id')),
+          title: resultSet.getString(resultSet.getColumnIndex('title')),
+          createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
+          updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
+          pinned: resultSet.getLong(resultSet.getColumnIndex('pinned')) !== 0,
+          totalInputTokens: resultSet.getLong(resultSet.getColumnIndex('total_input_tokens')),
+          totalOutputTokens: resultSet.getLong(resultSet.getColumnIndex('total_output_tokens'))
+        });
+      }
+      resultSet.close();
+      return sessions;
+    } catch (error) {
+      throw new Error('读取会话列表失败: ' + String(error));
     }
-    resultSet.close();
-    return sessions;
   }
 
   // 重命名会话
   async renameSession(id: number, title: string): Promise<void> {
-    const values: relationalStore.ValuesBucket = {
-      'title': title,
-      'updated_at': Date.now()
-    };
-    const predicates = new relationalStore.RdbPredicates('session');
-    predicates.equalTo('id', id);
-    await this.store!.update(values, predicates);
+    try {
+      const values: relationalStore.ValuesBucket = {
+        'title': title,
+        'updated_at': Date.now()
+      };
+      const predicates = new relationalStore.RdbPredicates('session');
+      predicates.equalTo('id', id);
+      await this.store!.update(values, predicates);
+    } catch (error) {
+      throw new Error('重命名会话失败: ' + String(error));
+    }
   }
 
   async saveSession(record: SessionRecord): Promise<void> {
-    const predicates = new relationalStore.RdbPredicates('session');
-    predicates.equalTo('id', record.id);
-    const updated = await this.store!.update({
-      'title': record.title,
-      'updated_at': record.updatedAt,
-      'pinned': record.pinned ? 1 : 0,
-      'total_input_tokens': record.totalInputTokens,
-      'total_output_tokens': record.totalOutputTokens
-    }, predicates);
-    if (updated === 0) {
-      await this.store!.insert('session', {
-        'id': record.id,
+    try {
+      const predicates = new relationalStore.RdbPredicates('session');
+      predicates.equalTo('id', record.id);
+      const updated = await this.store!.update({
         'title': record.title,
-        'created_at': record.createdAt,
         'updated_at': record.updatedAt,
         'pinned': record.pinned ? 1 : 0,
         'total_input_tokens': record.totalInputTokens,
         'total_output_tokens': record.totalOutputTokens
-      });
+      }, predicates);
+      if (updated === 0) {
+        await this.store!.insert('session', {
+          'id': record.id,
+          'title': record.title,
+          'created_at': record.createdAt,
+          'updated_at': record.updatedAt,
+          'pinned': record.pinned ? 1 : 0,
+          'total_input_tokens': record.totalInputTokens,
+          'total_output_tokens': record.totalOutputTokens
+        });
+      }
+    } catch (error) {
+      throw new Error('保存会话失败: ' + String(error));
     }
   }
 
   // 删除会话及其消息
   async deleteSession(id: number): Promise<void> {
-    const sessionPredicates = new relationalStore.RdbPredicates('session');
-    sessionPredicates.equalTo('id', id);
-    await this.store!.delete(sessionPredicates);
+    try {
+      const sessionPredicates = new relationalStore.RdbPredicates('session');
+      sessionPredicates.equalTo('id', id);
+      await this.store!.delete(sessionPredicates);
 
-    const messagePredicates = new relationalStore.RdbPredicates('message');
-    messagePredicates.equalTo('session_id', id);
-    await this.store!.delete(messagePredicates);
+      const messagePredicates = new relationalStore.RdbPredicates('message');
+      messagePredicates.equalTo('session_id', id);
+      await this.store!.delete(messagePredicates);
+    } catch (error) {
+      throw new Error('删除会话失败: ' + String(error));
+    }
   }
 
   // 追加消息，返回消息 id；同时刷新会话 updated_at
-  async addMessage(sessionId: number, role: string, content: string, attachments: string[] = []): Promise<number> {
-    const values: relationalStore.ValuesBucket = {
-      'session_id': sessionId,
-      'role': role,
-      'content': content,
-      'attachments': JSON.stringify(attachments),
-      'created_at': Date.now()
-    };
-    const id = await this.store!.insert('message', values);
+  async addMessage(sessionId: number, role: string, content: string, attachments: string[] = [],
+    updateSession: boolean = true): Promise<number> {
+    try {
+      const values: relationalStore.ValuesBucket = {
+        'session_id': sessionId,
+        'role': role,
+        'content': content,
+        'attachments': JSON.stringify(attachments),
+        'created_at': Date.now()
+      };
+      const id = await this.store!.insert('message', values);
 
-    const sessionValues: relationalStore.ValuesBucket = {
-      'updated_at': Date.now()
-    };
-    const predicates = new relationalStore.RdbPredicates('session');
-    predicates.equalTo('id', sessionId);
-    await this.store!.update(sessionValues, predicates);
+      if (updateSession) {
+        const sessionValues: relationalStore.ValuesBucket = {
+          'updated_at': Date.now()
+        };
+        const predicates = new relationalStore.RdbPredicates('session');
+        predicates.equalTo('id', sessionId);
+        await this.store!.update(sessionValues, predicates);
+      }
 
-    return id;
+      return id;
+    } catch (error) {
+      throw new Error('保存消息失败: ' + String(error));
+    }
   }
 
   // 会话消息列表（按时间正序）
   async listMessages(sessionId: number): Promise<MessageRecord[]> {
-    const predicates = new relationalStore.RdbPredicates('message');
-    predicates.equalTo('session_id', sessionId);
-    predicates.orderByAsc('id');
-    const resultSet = await this.store!.query(predicates);
-    const messages: MessageRecord[] = [];
-    while (resultSet.goToNextRow()) {
-      messages.push({
-        id: resultSet.getLong(resultSet.getColumnIndex('id')),
-        sessionId: resultSet.getLong(resultSet.getColumnIndex('session_id')),
-        role: resultSet.getString(resultSet.getColumnIndex('role')),
-        content: resultSet.getString(resultSet.getColumnIndex('content')),
-        attachments: this.parseAttachments(resultSet.getString(resultSet.getColumnIndex('attachments'))),
-        createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at'))
-      });
+    try {
+      const predicates = new relationalStore.RdbPredicates('message');
+      predicates.equalTo('session_id', sessionId);
+      predicates.orderByAsc('id');
+      const resultSet = await this.store!.query(predicates);
+      const messages: MessageRecord[] = [];
+      while (resultSet.goToNextRow()) {
+        messages.push({
+          id: resultSet.getLong(resultSet.getColumnIndex('id')),
+          sessionId: resultSet.getLong(resultSet.getColumnIndex('session_id')),
+          role: resultSet.getString(resultSet.getColumnIndex('role')),
+          content: resultSet.getString(resultSet.getColumnIndex('content')),
+          attachments: this.parseAttachments(resultSet.getString(resultSet.getColumnIndex('attachments'))),
+          createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at'))
+        });
+      }
+      resultSet.close();
+      return messages;
+    } catch (error) {
+      throw new Error('读取消息失败: ' + String(error));
     }
-    resultSet.close();
-    return messages;
   }
 
   // 清空会话消息
   async clearMessages(sessionId: number): Promise<void> {
-    const predicates = new relationalStore.RdbPredicates('message');
-    predicates.equalTo('session_id', sessionId);
-    await this.store!.delete(predicates);
+    try {
+      const predicates = new relationalStore.RdbPredicates('message');
+      predicates.equalTo('session_id', sessionId);
+      await this.store!.delete(predicates);
+    } catch (error) {
+      throw new Error('清空消息失败: ' + String(error));
+    }
   }
 
   async replaceMessages(sessionId: number, messages: MessageRecord[]): Promise<void> {
-    await this.clearMessages(sessionId);
-    for (const message of messages) {
-      await this.addMessage(sessionId, message.role, message.content, message.attachments);
+    try {
+      await this.clearMessages(sessionId);
+      for (const message of messages) {
+        await this.addMessage(sessionId, message.role, message.content, message.attachments, false);
+      }
+      const sessionValues: relationalStore.ValuesBucket = { 'updated_at': Date.now() };
+      const predicates = new relationalStore.RdbPredicates('session');
+      predicates.equalTo('id', sessionId);
+      await this.store!.update(sessionValues, predicates);
+    } catch (error) {
+      throw new Error('替换消息失败: ' + String(error));
     }
   }
 

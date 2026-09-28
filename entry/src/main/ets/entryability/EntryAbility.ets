@@ -1,6 +1,7 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { ServeService } from '../service/ServeService';
 
 const DOMAIN = 0x0000;
 
@@ -10,6 +11,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    ServeService.getInstance().dispose();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 

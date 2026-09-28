@@ -47,6 +47,8 @@ public:
     void UnloadModel();
 
     bool IsLoaded() const;
+    std::string ModelMetaString(const char * key) const;
+    std::string ModelChatTemplate() const;
 
     llama_model * model() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -75,6 +77,10 @@ public:
         return slot_context_;
     }
 
+    int32_t context_threads() const {
+        return context_threads_.load(std::memory_order_relaxed);
+    }
+
     // decode/采样的互斥锁：RunGeneration 在每次 decode 前加锁。
     std::mutex & decode_mutex() { return decode_mutex_; }
 
@@ -98,6 +104,7 @@ public:
 
     // 请求停止所有会话（stopAll / 卸载模型）
     void RequestStopAll();
+    void NotifySlotWaiters();
     void ClearStopAll() { stop_all_.store(false, std::memory_order_relaxed); }
     bool StopAllRequested() const { return stop_all_.load(std::memory_order_relaxed); }
 
@@ -132,6 +139,7 @@ private:
     llama_context * ctx_ = nullptr;
     mtmd_context * mtmd_ctx_ = nullptr;
     uint32_t slot_context_ = 0;
+    std::atomic<int32_t> context_threads_{0};
     int32_t active_count_ = 0;
 
     std::atomic_bool stop_all_{false};                                  // 停止所有

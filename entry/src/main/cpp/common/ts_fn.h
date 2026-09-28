@@ -16,8 +16,8 @@ public:
     TsFn(const TsFn &) = delete;
     TsFn & operator=(const TsFn &) = delete;
 
-    // 从任意线程调用（非阻塞），data 的所有权转移给 JS 回调
-    void Call(void * data);
+    // 从任意线程调用，成功时 data 的所有权转移给 JS 回调
+    napi_status Call(void * data);
 
     // 释放线程安全函数（最后一个引用释放后真正销毁）
     void Release();

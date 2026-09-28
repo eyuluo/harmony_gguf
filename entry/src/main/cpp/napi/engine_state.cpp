@@ -181,6 +181,11 @@ void EngineState::RequestStopAll() {
     }
 }
 
+void EngineState::NotifySlotWaiters() {
+    std::lock_guard<std::mutex> lock(slot_mutex_);
+    slot_cv_.notify_all();
+}
+
 int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & config) {
     // 停止并等待所有旧推理线程退出；free 在锁内完成，避免 use-after-free
     // 加载完成前保持 stop_all_，阻止加载期间新请求进入（Serve 阻塞请求被唤醒返回，NAPI 因未加载被拒）
@@ -202,6 +207,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
             model_ = nullptr;
         }
         slot_context_ = 0;
+        context_threads_ = 0;
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -287,6 +293,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         ctx_ = ctx;
         mtmd_ctx_ = mctx;
         slot_context_ = n_ctx_seq; // 每槽位逻辑软上限（kv_unified 下 llama_n_ctx_seq 返回总容量，不可用）
+        context_threads_ = ctx_params.n_threads;
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -322,6 +329,7 @@ void EngineState::UnloadModel() {
             model_ = nullptr;
         }
         slot_context_ = 0;
+        context_threads_ = 0;
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -338,4 +346,23 @@ void EngineState::UnloadModel() {
 bool EngineState::IsLoaded() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return model_ != nullptr;
+}
+
+std::string EngineState::ModelMetaString(const char * key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (model_ == nullptr) {
+        return "";
+    }
+    char value[128] = {0};
+    const int32_t len = llama_model_meta_val_str(model_, key, value, sizeof(value));
+    return len > 0 ? std::string(value, static_cast<size_t>(len)) : std::string();
+}
+
+std::string EngineState::ModelChatTemplate() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (model_ == nullptr) {
+        return "";
+    }
+    const char * value = llama_model_chat_template(model_, nullptr);
+    return value != nullptr ? std::string(value) : std::string();
 }
