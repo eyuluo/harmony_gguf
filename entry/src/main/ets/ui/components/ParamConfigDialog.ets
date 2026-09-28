@@ -49,21 +49,21 @@ export struct ParamConfigDialog {
               .fontColor('#A0A0A0')
               .alignSelf(ItemAlign.Start)
               .margin({ bottom: 4 })
-            SettingStepper({ label: 'Context length', value: $localContextLength, min: 0, max: 32768, step: 256 })
-            SettingStepper({ label: 'Threads', value: $localThreads, min: 0, max: 32, step: 1 })
-            SettingStepper({ label: 'Parallel', value: $localParallel, min: 1, max: 8, step: 1 })
+            SettingStepper({ label: '上下文长度', value: $localContextLength, min: 0, max: 32768, step: 256 })
+            SettingStepper({ label: '线程数', value: $localThreads, min: 0, max: 32, step: 1 })
+            SettingStepper({ label: '并发数', value: $localParallel, min: 1, max: 8, step: 1 })
             Text('生成参数')
               .fontSize(13)
               .fontWeight(FontWeight.Medium)
               .fontColor('#A0A0A0')
               .alignSelf(ItemAlign.Start)
               .margin({ top: 18, bottom: 4 })
-            SettingStepper({ label: 'Max tokens', value: $localMaxTokens, min: 1, max: 8192, step: 64 })
-            SettingStepper({ label: 'Temperature', value: $localTemperature, min: 0, max: 2, step: 0.05,
+            SettingStepper({ label: '最大生成长度', value: $localMaxTokens, min: 1, max: 8192, step: 64 })
+            SettingStepper({ label: '温度', value: $localTemperature, min: 0, max: 2, step: 0.05,
               decimalPlaces: 2 })
-            SettingStepper({ label: 'Top-K', value: $localTopK, min: 0, max: 200, step: 1 })
-            SettingStepper({ label: 'Top-P', value: $localTopP, min: 0, max: 1, step: 0.01, decimalPlaces: 2 })
-            SettingStepper({ label: 'Repeat penalty', value: $localRepeatPenalty, min: 0.5, max: 2, step: 0.05,
+            SettingStepper({ label: '候选词数量', value: $localTopK, min: 0, max: 200, step: 1 })
+            SettingStepper({ label: '累计概率阈值', value: $localTopP, min: 0, max: 1, step: 0.01, decimalPlaces: 2 })
+            SettingStepper({ label: '重复惩罚', value: $localRepeatPenalty, min: 0.5, max: 2, step: 0.05,
               decimalPlaces: 2 })
           }
           .width('100%')

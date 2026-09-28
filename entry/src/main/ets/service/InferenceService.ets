@@ -344,7 +344,7 @@ export class InferenceService {
       updated.requestId = 0;
       updated.pendingPrompt = '';
     }
-    this.replaceSession(updated);
+    this.replaceSession(updated, event !== 'token');
     if (event === 'done' || event === 'stopped' || event === 'error') {
       this.dequeueNext();
     }
@@ -447,14 +447,14 @@ export class InferenceService {
     return result;
   }
 
-  private replaceSession(session: Session): void {
+  private replaceSession(session: Session, persist: boolean = true): void {
     const state = this.state!;
     const next: Session[] = [];
     for (const s of state.sessions) {
       next.push(s.id === session.id ? session : s);
     }
     state.sessions = next;
-    if (session.persistent) {
+    if (persist && session.persistent) {
       this.persistSession(session);
     }
   }

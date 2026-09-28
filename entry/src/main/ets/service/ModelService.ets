@@ -33,13 +33,17 @@ export class ModelService {
     const stored = ModelStore.getInstance().getModels();
     const items: ModelItem[] = [];
     for (const model of stored) {
-      const needsQuantizationRefresh = model.quantization.startsWith('(guessed)') ||
+      const needsMetadataRefresh = model.contextLength === 0 || model.quantization.startsWith('(guessed)') ||
         model.quantization.indexOf('all F32') >= 0;
-      if (needsQuantizationRefresh && this.isFileExists(model.path)) {
+      if (needsMetadataRefresh && this.isFileExists(model.path)) {
         try {
           const parts = (await taskpool.execute(parseModelTask, model.path) as string).split('|');
-          if (parts[1] !== model.quantization) {
+          const contextLength = Number(parts[3]);
+          if (parts[1] !== model.quantization || (model.contextLength === 0 && contextLength > 0)) {
             model.quantization = parts[1];
+            if (model.contextLength === 0 && contextLength > 0) {
+              model.contextLength = contextLength;
+            }
             await ModelStore.getInstance().saveModel(model);
           }
         } catch (error) {

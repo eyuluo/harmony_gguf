@@ -109,7 +109,7 @@ target_compile_options(entry PRIVATE
     -frtti
     -Wno-unused-command-line-argument
     ${GGML_ARCH_FLAGS}
-    $<$<CONFIG:Debug>:-O2>
+    $<$<CONFIG:Debug>:-O3>
     $<$<CONFIG:Release>:-O3>)
 
 target_compile_definitions(entry PRIVATE

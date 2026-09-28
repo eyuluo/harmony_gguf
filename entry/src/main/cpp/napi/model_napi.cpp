@@ -68,6 +68,15 @@ static uint32_t read_gguf_u32(const gguf_context * ctx, const char * key) {
     return gguf_get_val_u32(ctx, id);
 }
 
+static uint32_t read_model_context_length(const gguf_context * ctx, const std::string & architecture) {
+    const std::string key = architecture + ".context_length";
+    const int64_t id = gguf_find_key(ctx, key.c_str());
+    if (id < 0) {
+        return 0;
+    }
+    return gguf_get_val_u32(ctx, id);
+}
+
 // 读取 GGUF KV bool（key -> value，不存在返回 false）
 static bool read_gguf_bool(const gguf_context * ctx, const char * key) {
     int64_t id = gguf_find_key(ctx, key);
@@ -163,12 +172,18 @@ static napi_value ParseGgufMetadata(napi_env env, napi_callback_info info) {
         if (file_type_id >= 0) {
             meta.quantization = quantization_name(gguf_get_val_u32(gguf, file_type_id));
         }
+        if (meta.context_length == 0) {
+            meta.context_length = read_model_context_length(gguf, meta.architecture);
+        }
         gguf_free(gguf);
     }
     if (meta.quantization.empty()) {
         meta.quantization = quantization_name(static_cast<uint32_t>(llama_model_ftype(model)));
     }
-    meta.context_length = static_cast<uint32_t>(llama_model_n_ctx_train(model));
+    const uint32_t model_context_length = static_cast<uint32_t>(llama_model_n_ctx_train(model));
+    if (meta.context_length == 0) {
+        meta.context_length = model_context_length;
+    }
     struct stat file_stat;
     meta.file_size = stat(path.c_str(), &file_stat) == 0 ? static_cast<uint64_t>(file_stat.st_size) : 0;
     meta.parameters = format_params(llama_model_n_params(model));
