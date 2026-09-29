@@ -13,7 +13,7 @@ import {
   SESSION_FAILED
 } from './AppState';
 import { StoredModelInfo } from './ModelStore';
-import { loadModelTask } from './ModelTasks';
+import { loadModelTask, unloadModelTask } from './ModelTasks';
 import { MessageRecord, SessionStore } from './SessionStore';
 
 const DOMAIN = 0x0000;
@@ -27,6 +27,12 @@ interface SessionPatch {
   requestId?: number;
   messages?: SessionMessage[];
   lastStats?: GenerateStats | null;
+  pendingPrompt?: string;
+}
+
+interface ChatPromptMessage {
+  role: string;
+  content: string;
 }
 
 export class InferenceService {
@@ -34,6 +40,7 @@ export class InferenceService {
   private state: AppState | null = null;
   private context: common.Context | null = null;
   private persistChain: Promise<void> = Promise.resolve();
+  private nextMessageId: number = 1;
 
   static getInstance(): InferenceService {
     if (InferenceService.instance === null) {
@@ -61,6 +68,7 @@ export class InferenceService {
       const restoredMessages: SessionMessage[] = [];
       for (const message of messages) {
         restoredMessages.push({
+          id: this.nextMessageId++,
           role: message.role,
           content: message.content,
           attachments: message.attachments,
@@ -126,9 +134,10 @@ export class InferenceService {
     if (state.modelId <= 0) {
       return;
     }
-    testNapi.stopAllGenerations();
-    testNapi.stopServer();
-    testNapi.unloadModel(state.modelId);
+    const modelId = state.modelId;
+    taskpool.execute(unloadModelTask, modelId).catch((error: Error) => {
+      hilog.error(DOMAIN, TAG, 'unload model failed: %{public}s', String(error));
+    });
     state.modelId = 0;
     state.modelInfo = null;
     state.activeModelPath = '';
@@ -161,7 +170,7 @@ export class InferenceService {
     return id;
   }
 
-  deleteSession(sessionId: number): void {
+  async deleteSession(sessionId: number): Promise<void> {
     const state = this.state!;
     const target = this.findSession(sessionId);
     if (target !== null && (target.status === SESSION_RUNNING || target.status === SESSION_QUEUED)) {
@@ -179,7 +188,7 @@ export class InferenceService {
     if (state.activeSessionId === sessionId) {
       state.activeSessionId = remaining.length > 0 ? remaining[0].id : 0;
     }
-    this.removePersistedSession(sessionId);
+    await this.removePersistedSession(sessionId);
   }
 
   renameSession(sessionId: number, title: string): void {
@@ -222,8 +231,12 @@ export class InferenceService {
     if (session.status === SESSION_RUNNING || session.status === SESSION_QUEUED) {
       return;
     }
-    const userMessage: SessionMessage = { role: 'user', content: prompt, attachments: attachments, contentParts: [] };
-    const assistantMessage: SessionMessage = { role: 'assistant', content: '', attachments: [], contentParts: [] };
+    const userMessage: SessionMessage = {
+      id: this.nextMessageId++, role: 'user', content: prompt, attachments: attachments, contentParts: []
+    };
+    const assistantMessage: SessionMessage = {
+      id: this.nextMessageId++, role: 'assistant', content: '', attachments: [], contentParts: []
+    };
     const messages = session.messages.concat([userMessage, assistantMessage]);
     let title = session.title;
     if (title === '新对话' && session.messages.length === 0) {
@@ -263,6 +276,7 @@ export class InferenceService {
     }
     if (session.status === SESSION_QUEUED) {
       this.updateStatus(sessionId, SESSION_IDLE);
+      this.dequeueNext();
       return;
     }
     if (session.requestId > 0) {
@@ -282,8 +296,8 @@ export class InferenceService {
         }
       }
     }
-    const generationPrompt = session === null ? prompt : this.buildPrompt(session, prompt);
     try {
+      const generationPrompt = session === null ? prompt : this.buildPrompt(session);
       const requestId = testNapi.generate(generationPrompt, {
         maxTokens: state.maxTokens,
         temperature: state.temperature,
@@ -298,9 +312,30 @@ export class InferenceService {
       this.updateRequestId(sessionId, requestId);
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'generate failed: %{public}s', String(error));
-      this.updateStatus(sessionId, SESSION_FAILED);
+      this.failGeneration(sessionId);
       this.dequeueNext();
     }
+  }
+
+  private failGeneration(sessionId: number): void {
+    const session = this.findSession(sessionId);
+    if (session === null) {
+      return;
+    }
+    let messages = session.messages;
+    const last = messages.length - 1;
+    if (last >= 0) {
+      const message = messages[last];
+      if (message.role === 'assistant' && message.content.length === 0 && message.contentParts.length === 0) {
+        messages = messages.slice(0, last);
+      }
+    }
+    this.replaceSession(this.copyWith(session, {
+      messages: messages,
+      status: SESSION_FAILED,
+      requestId: 0,
+      pendingPrompt: ''
+    }));
   }
 
   private onGenerateEvent(sessionId: number, event: string, data: object): void {
@@ -335,6 +370,7 @@ export class InferenceService {
         const text = (data as TokenData).text;
         parts.push(text);
         nextMessages[last] = {
+          id: message.id,
           role: 'assistant',
           content: message.content + text,
           attachments: message.attachments,
@@ -372,22 +408,16 @@ export class InferenceService {
     this.startGenerate(queued.id, queued.pendingPrompt);
   }
 
-  private buildPrompt(session: Session, currentPrompt: string): string {
-    if (session.messages.length <= 2) {
-      return currentPrompt;
-    }
-    const lines: string[] = [];
-    for (let index = 0; index < session.messages.length - 2; index++) {
+  private buildPrompt(session: Session): string {
+    const messages: ChatPromptMessage[] = [];
+    for (let index = 0; index < session.messages.length - 1; index++) {
       const message = session.messages[index];
       if (message.content.length === 0) {
         continue;
       }
-      const role = message.role === 'user' ? '用户' : '助手';
-      lines.push(`${role}：${message.content}`);
+      messages.push({ role: message.role, content: message.content });
     }
-    lines.push(`用户：${currentPrompt}`);
-    lines.push('助手：');
-    return lines.join('\n');
+    return testNapi.formatChatPrompt(messages);
   }
 
   private finalizeStreamingMessage(session: Session): void {
@@ -400,7 +430,8 @@ export class InferenceService {
       return;
     }
     const messages = session.messages.slice();
-    messages[last] = {
+      messages[last] = {
+      id: message.id,
       role: message.role,
       content: message.contentParts.join(''),
       attachments: message.attachments,
@@ -553,7 +584,7 @@ export class InferenceService {
     });
   }
 
-  private removePersistedSession(sessionId: number): void {
+  private async removePersistedSession(sessionId: number): Promise<void> {
     if (this.context === null) {
       return;
     }
@@ -564,5 +595,6 @@ export class InferenceService {
     }).catch((error: Error) => {
       hilog.error(DOMAIN, TAG, 'delete persisted session failed: %{public}s', String(error));
     });
+    await this.persistChain;
   }
 }

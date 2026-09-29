@@ -28,14 +28,22 @@ struct Index {
   private modelService: ModelService = ModelService.getInstance();
   private serve: ServeService = ServeService.getInstance();
   private settings: SettingsService = SettingsService.getInstance();
+  private initializing: boolean = false;
 
   aboutToAppear(): void {
-    this.initialize();
+    if (!this.initializing) {
+      this.initialize();
+    }
   }
 
   async initialize(): Promise<void> {
+    if (this.initializing) {
+      return;
+    }
+    this.initializing = true;
     const context = this.getUIContext().getHostContext();
     if (!context) {
+      this.initializing = false;
       return;
     }
     this.inference.init(this.appState, context);
@@ -48,6 +56,8 @@ struct Index {
       await this.modelService.refreshModels();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'initialize failed: %{public}s', String(error));
+    } finally {
+      this.initializing = false;
     }
   }
 

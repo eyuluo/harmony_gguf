@@ -14,6 +14,8 @@ export class ServeService {
   private state: AppState | null = null;
   private timerId: number = -1;
   private httpRequest: http.HttpRequest = http.createHttp();
+  private disposed: boolean = false;
+  private healthRequestId: number = 0;
 
   static getInstance(): ServeService {
     if (ServeService.instance === null) {
@@ -24,6 +26,7 @@ export class ServeService {
 
   init(state: AppState): void {
     this.state = state;
+    this.disposed = false;
   }
 
   startServe(): void {
@@ -36,19 +39,34 @@ export class ServeService {
       this.refreshServerStatus();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'start server failed: %{public}s', String(error));
+      state.serverRunning = false;
+      state.serverInfo = '服务启动失败';
     }
   }
 
   stopServe(): void {
-    testNapi.stopServer();
-    this.refreshServerStatus();
+    const state = this.state!;
+    try {
+      testNapi.stopServer();
+      this.refreshServerStatus();
+    } catch (error) {
+      hilog.error(DOMAIN, TAG, 'stop server failed: %{public}s', String(error));
+      state.serverInfo = '服务停止失败';
+    }
   }
 
   refreshServerStatus(): void {
-    const state = this.state!;
-    const info = testNapi.getServerStatus() as ServerInfo;
-    state.serverRunning = info.running;
-    state.serverInfo = info.running ? `http://${info.host}:${info.port}` : '服务未启动';
+    if (this.disposed || this.state === null) {
+      return;
+    }
+    try {
+      const state = this.state;
+      const info = testNapi.getServerStatus() as ServerInfo;
+      state.serverRunning = info.running;
+      state.serverInfo = info.running ? `http://${info.host}:${info.port}` : '服务未启动';
+    } catch (error) {
+      hilog.warn(DOMAIN, TAG, 'refresh server status failed: %{public}s', String(error));
+    }
   }
 
   startAutoCheck(): void {
@@ -68,6 +86,8 @@ export class ServeService {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.healthRequestId += 1;
     this.stopAutoCheck();
     this.httpRequest.destroy();
   }
@@ -78,11 +98,15 @@ export class ServeService {
       state.healthStatus = '服务未运行';
       return;
     }
+    const requestId = ++this.healthRequestId;
     this.httpRequest.request(`${BASE_URL}/health`, {
       method: http.RequestMethod.GET,
       connectTimeout: 3000,
       readTimeout: 5000
     }, (err: BusinessError, data: http.HttpResponse) => {
+      if (this.disposed || requestId !== this.healthRequestId) {
+        return;
+      }
       if (err) {
         state.healthStatus = `状态异常：${err.message}`;
       } else {

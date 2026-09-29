@@ -43,6 +43,7 @@ private:
 
     ServerConfig config_;
     std::atomic_bool running_{false};
+    bool stopping_ = false;
     mutable std::mutex mutex_;
     void * server_ = nullptr; // httplib::Server *（PIMPL，避免头文件暴露 httplib）
     std::thread thread_;      // listen 线程

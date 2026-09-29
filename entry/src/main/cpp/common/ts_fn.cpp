@@ -11,7 +11,7 @@ TsFn::TsFn(napi_env env, napi_value func, const char * name, JsCall js_call) {
         func,
         nullptr,
         resource_name,
-        32,   // 有界队列，避免 JS 线程阻塞时无限积压
+        0,    // 无限队列，避免同步 NAPI 调用期间推理线程被队列背压阻塞
         1,    // 初始线程数
         nullptr,
         nullptr,

@@ -85,7 +85,7 @@ export struct SessionList {
           confirmText: '删除',
           onCancel: () => { this.pendingDeleteId = 0; },
           onConfirm: () => {
-            this.inference.deleteSession(this.pendingDeleteId);
+            this.inference.deleteSession(this.pendingDeleteId).catch(() => {});
             this.pendingDeleteId = 0;
           }
         })

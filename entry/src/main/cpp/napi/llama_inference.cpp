@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -50,14 +51,46 @@ private:
 
 class BatchGuard {
 public:
-    explicit BatchGuard(int32_t n_tokens) : batch_(llama_batch_init(n_tokens, 0, 1)) {}
+    explicit BatchGuard(int32_t n_tokens)
+        : batch_(llama_batch_init(n_tokens, 0, 1)), n_tokens_(n_tokens) {}
     ~BatchGuard() { llama_batch_free(batch_); }
     BatchGuard(const BatchGuard &) = delete;
     BatchGuard & operator=(const BatchGuard &) = delete;
+    bool valid() const {
+        return batch_.token != nullptr && batch_.pos != nullptr &&
+            batch_.n_seq_id != nullptr && batch_.seq_id != nullptr &&
+            batch_.logits != nullptr && [&]() {
+                for (int32_t i = 0; i < n_tokens_; i++) {
+                    if (batch_.seq_id[i] == nullptr) {
+                        return false;
+                    }
+                }
+                return true;
+            }();
+    }
     llama_batch & get() { return batch_; }
 
 private:
     llama_batch batch_;
+    int32_t n_tokens_;
+};
+
+class ActiveStopGuard {
+public:
+    ActiveStopGuard(EngineState & state, const std::atomic_bool * flag)
+        : state_(state) {
+        state_.SetActiveStopFlag(flag);
+    }
+
+    ~ActiveStopGuard() {
+        state_.ClearActiveStopFlag();
+    }
+
+    ActiveStopGuard(const ActiveStopGuard &) = delete;
+    ActiveStopGuard & operator=(const ActiveStopGuard &) = delete;
+
+private:
+    EngineState & state_;
 };
 
 class ThreadGuard {
@@ -187,9 +220,8 @@ GenResult RunGeneration(
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             ThreadGuard threads(ctx, params.threads, state.context_threads());
-            state.SetActiveStopFlag(stop_flag.get());
+            ActiveStopGuard active_stop(state, stop_flag.get());
             res = mtmd_helper_eval_chunks(mctx, ctx, chunks, 0, seq_id, n_batch, true, &n_past);
-            state.ClearActiveStopFlag();
         }
 
         mtmd_input_chunks_free(chunks);
@@ -223,24 +255,37 @@ GenResult RunGeneration(
 
         out_stats.prompt_tokens = n_prompt;
 
-        BatchGuard prompt_batch(n_prompt);
-        for (int32_t i = 0; i < n_prompt; i++) {
-            prompt_batch.get().token[i] = prompt_tokens[i];
+        const int32_t n_batch = static_cast<int32_t>(llama_n_batch(ctx));
+        if (n_batch <= 0) {
+            return GenResult::Failed;
         }
-        FillBatchSeq(prompt_batch.get(), seq_id, n_prompt, 0, true);
-
-        {
-            std::lock_guard<std::mutex> lock(state.decode_mutex());
-            ThreadGuard threads(ctx, params.threads, state.context_threads());
-            state.SetActiveStopFlag(stop_flag.get());
-            const int32_t rc = llama_decode(ctx, prompt_batch.get());
-            state.ClearActiveStopFlag();
-            if (rc != 0) {
-                if (stop_requested()) {
-                    return GenResult::Aborted;
-                }
+        for (int32_t offset = 0; offset < n_prompt;) {
+            if (stop_requested()) {
+                return GenResult::Aborted;
+            }
+            const int32_t count = std::min(n_batch, n_prompt - offset);
+            BatchGuard prompt_batch(count);
+            if (!prompt_batch.valid()) {
                 return GenResult::Failed;
             }
+            for (int32_t i = 0; i < count; i++) {
+                prompt_batch.get().token[i] = prompt_tokens[static_cast<size_t>(offset + i)];
+            }
+            FillBatchSeq(prompt_batch.get(), seq_id, count, offset, offset + count == n_prompt);
+
+            {
+                std::lock_guard<std::mutex> lock(state.decode_mutex());
+                ThreadGuard threads(ctx, params.threads, state.context_threads());
+                ActiveStopGuard active_stop(state, stop_flag.get());
+                const int32_t rc = llama_decode(ctx, prompt_batch.get());
+                if (rc != 0) {
+                    if (stop_requested()) {
+                        return GenResult::Aborted;
+                    }
+                    return GenResult::Failed;
+                }
+            }
+            offset += count;
         }
         n_past = n_prompt;
     }
@@ -248,6 +293,9 @@ GenResult RunGeneration(
     // 单 token batch：生成循环复用。prompt / 多模态 chunks decode 后已经产出首个 logits，
     // 因此循环必须先采样，再把采样 token decode 成下一步 logits。
     BatchGuard one(1);
+    if (!one.valid()) {
+        return GenResult::Failed;
+    }
     one.get().n_tokens = 1;
     one.get().n_seq_id[0] = 1;
     one.get().seq_id[0][0] = seq_id;
@@ -262,9 +310,8 @@ GenResult RunGeneration(
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             ThreadGuard threads(ctx, params.threads, state.context_threads());
-            state.SetActiveStopFlag(stop_flag.get());
+            ActiveStopGuard active_stop(state, stop_flag.get());
             new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
-            state.ClearActiveStopFlag();
         }
         if (first_token) {
             t_first = llama_time_us();
@@ -276,10 +323,15 @@ GenResult RunGeneration(
             break;
         }
 
-        char piece[256] = {0};
-        int32_t n = llama_token_to_piece(vocab, new_token_id, piece, static_cast<int32_t>(sizeof(piece)), 0, true);
+        std::string piece(256, '\0');
+        int32_t n = llama_token_to_piece(vocab, new_token_id, piece.data(), static_cast<int32_t>(piece.size()), 0, true);
+        if (n < 0) {
+            piece.resize(static_cast<size_t>(-n));
+            n = llama_token_to_piece(vocab, new_token_id, piece.data(), static_cast<int32_t>(piece.size()), 0, true);
+        }
         if (n > 0) {
-            on_token(piece);
+            piece.resize(static_cast<size_t>(n));
+            on_token(piece.c_str());
         }
 
         out_stats.generated_tokens++;
@@ -296,9 +348,8 @@ GenResult RunGeneration(
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             ThreadGuard threads(ctx, params.threads, state.context_threads());
-            state.SetActiveStopFlag(stop_flag.get());
+            ActiveStopGuard active_stop(state, stop_flag.get());
             rc = llama_decode(ctx, one.get());
-            state.ClearActiveStopFlag();
         }
         if (rc != 0) {
             if (stop_requested()) {
@@ -347,8 +398,16 @@ bool RunGenerationAsync(
 
     auto run = [request_id, seq_id, stop_flag, params, on_token, on_done, should_stop]() {
         GenerateStats stats;
-        GenResult result = RunGeneration(seq_id, stop_flag, params, on_token, should_stop, stats);
-        on_done(result, stats);
+        GenResult result = GenResult::Failed;
+        try {
+            result = RunGeneration(seq_id, stop_flag, params, on_token, should_stop, stats);
+        } catch (...) {
+            result = GenResult::Failed;
+        }
+        try {
+            on_done(result, stats);
+        } catch (...) {
+        }
         EngineState::Instance().EndGenerate(request_id, seq_id);
     };
 

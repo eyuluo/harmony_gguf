@@ -14,9 +14,13 @@ static inline bool GetString(napi_env env, napi_value value, std::string & out) 
     if (napi_get_value_string_utf8(env, value, nullptr, 0, &len) != napi_ok) {
         return false;
     }
-    out.resize(len);
+    if (len == 0) {
+        out.clear();
+        return true;
+    }
+    out.resize(len + 1);
     size_t copied = 0;
-    if (napi_get_value_string_utf8(env, value, &out[0], len + 1, &copied) != napi_ok) {
+    if (napi_get_value_string_utf8(env, value, out.data(), out.size(), &copied) != napi_ok) {
         return false;
     }
     out.resize(copied);
@@ -166,6 +170,17 @@ static inline void SetProperty(napi_env env, napi_value obj, const char * name, 
 // 抛出带错误码的异常
 static inline void ThrowError(napi_env env, int32_t code, const char * message) {
     std::string msg = "[error " + std::to_string(code) + "] " + message;
+    napi_value js_message = nullptr;
+    napi_value error = nullptr;
+    if (napi_create_string_utf8(env, msg.c_str(), NAPI_AUTO_LENGTH, &js_message) == napi_ok &&
+        napi_create_error(env, nullptr, js_message, &error) == napi_ok) {
+        napi_value js_code = nullptr;
+        if (napi_create_int32(env, code, &js_code) == napi_ok) {
+            napi_set_named_property(env, error, "code", js_code);
+        }
+        napi_throw(env, error);
+        return;
+    }
     napi_throw_error(env, nullptr, msg.c_str());
 }
 

@@ -28,7 +28,7 @@ export class SettingsService {
     state.topK = this.clampInteger(saved.topK, 1, 200, 40);
     state.topP = this.clampNumber(saved.topP, 0.01, 1, 0.95);
     state.repeatPenalty = this.clampNumber(saved.repeatPenalty, 0.5, 2, 1.0);
-    state.parallel = this.clampInteger(saved.parallel === 8 ? 1 : saved.parallel, 1, 8, 1);
+    state.parallel = saved.parallel;
   }
 
   private clampInteger(value: number, min: number, max: number, fallback: number): number {

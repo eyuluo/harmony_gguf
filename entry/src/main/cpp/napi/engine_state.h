@@ -2,6 +2,7 @@
 #define HARMONY_GGUF_ENGINE_STATE_H
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -94,7 +95,8 @@ public:
     // 阻塞从指定槽位池分配一个槽位：等待该池空闲槽位，external_stop 或全局停止时返回 0。
     uint64_t BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
                                    std::shared_ptr<std::atomic_bool> & out_stop_flag,
-                                   const std::function<bool()> & external_stop);
+                                   const std::function<bool()> & external_stop,
+                                   std::chrono::milliseconds timeout = std::chrono::seconds(30));
 
     // 结束会话：释放槽位、注销停止标志、清除该序列 KV cache。
     void EndGenerate(uint64_t id, llama_seq_id seq_id);
@@ -103,9 +105,12 @@ public:
     void RequestStop(uint64_t id);
 
     // 请求停止所有会话（stopAll / 卸载模型）
-    void RequestStopAll();
+    void RequestStopAll(bool clear_when_idle = false);
     void NotifySlotWaiters();
-    void ClearStopAll() { stop_all_.store(false, std::memory_order_relaxed); }
+    void ClearStopAll() {
+        stop_all_.store(false, std::memory_order_relaxed);
+        clear_stop_all_when_idle_.store(false, std::memory_order_relaxed);
+    }
     bool StopAllRequested() const { return stop_all_.load(std::memory_order_relaxed); }
 
     // 当前正在 decode 的请求的停止标志（供 llama abort_callback 查询）
@@ -133,6 +138,7 @@ private:
                             std::shared_ptr<std::atomic_bool> & out_stop_flag);
 
     mutable std::mutex mutex_;       // 保护 model_/ctx_/mtmd_ctx_/slot_context_/active_count_ 生命周期
+    std::mutex model_op_mutex_;      // 串行化 loadModel/unloadModel
     std::condition_variable gen_cv_; // 等待所有生成结束
     std::mutex decode_mutex_;        // 保护 llama_decode/采样/KV cache 操作
     llama_model * model_ = nullptr;
@@ -143,6 +149,7 @@ private:
     int32_t active_count_ = 0;
 
     std::atomic_bool stop_all_{false};                                  // 停止所有
+    std::atomic_bool clear_stop_all_when_idle_{false};                   // 最后一个任务退出后自动清除
     std::atomic<const std::atomic_bool *> active_stop_flag_{nullptr};   // 当前 decode 的请求停止标志
 
     std::atomic<uint64_t> next_id_{1};

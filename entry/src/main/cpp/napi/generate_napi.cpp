@@ -28,13 +28,13 @@ enum GenEvent : int32_t {
 // 通过 TSFN 传递给 JS 回调的事件数据
 struct GenCallbackData {
     int32_t event;
-    char text[512];
+    std::string text;
     int32_t prompt_tokens;
     int32_t generated_tokens;
     double ttft_ms;
     double tokens_per_second;
     int32_t error_code;
-    char error_message[512];
+    std::string error_message;
 };
 
 struct TokenBatch {
@@ -96,9 +96,8 @@ void GenerateJsCallback(napi_env env, napi_value js_cb, void * /*context*/, void
 
 void SendToken(TsFn * cb, const char * text) {
     GenCallbackData * data = new GenCallbackData();
-    std::memset(data, 0, sizeof(*data));
     data->event = EVENT_TOKEN;
-    strncpy(data->text, text, sizeof(data->text) - 1);
+    data->text = text != nullptr ? text : "";
     if (cb->Call(data) != napi_ok) {
         delete data;
     }
@@ -106,7 +105,6 @@ void SendToken(TsFn * cb, const char * text) {
 
 void SendDone(TsFn * cb, const GenerateStats & stats) {
     GenCallbackData * data = new GenCallbackData();
-    std::memset(data, 0, sizeof(*data));
     data->event = EVENT_DONE;
     FillStats(data, stats);
     if (cb->Call(data) != napi_ok) {
@@ -116,7 +114,6 @@ void SendDone(TsFn * cb, const GenerateStats & stats) {
 
 void SendStopped(TsFn * cb, const GenerateStats & stats) {
     GenCallbackData * data = new GenCallbackData();
-    std::memset(data, 0, sizeof(*data));
     data->event = EVENT_STOPPED;
     FillStats(data, stats);
     if (cb->Call(data) != napi_ok) {
@@ -126,10 +123,9 @@ void SendStopped(TsFn * cb, const GenerateStats & stats) {
 
 void SendError(TsFn * cb, int32_t code, const char * message) {
     GenCallbackData * data = new GenCallbackData();
-    std::memset(data, 0, sizeof(*data));
     data->event = EVENT_ERROR;
     data->error_code = code;
-    snprintf(data->error_message, sizeof(data->error_message), "%s", message);
+    data->error_message = message != nullptr ? message : "";
     if (cb->Call(data) != napi_ok) {
         delete data;
     }
@@ -307,8 +303,8 @@ static napi_value StopGenerate(napi_env env, napi_callback_info info) {
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     int64_t request_id = 0;
-    if (argc < 1 || napi_get_value_int64(env, args[0], &request_id) != napi_ok || request_id < 0) {
-        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "requestId must be a non-negative number");
+    if (argc < 1 || napi_get_value_int64(env, args[0], &request_id) != napi_ok || request_id <= 0) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "requestId must be a positive number");
         return nullptr;
     }
     EngineState::Instance().RequestStop(static_cast<uint64_t>(request_id));
@@ -320,8 +316,8 @@ static napi_value StopGenerate(napi_env env, napi_callback_info info) {
 
 // stopAllGenerations(): void
 static napi_value StopAllGenerations(napi_env env, napi_callback_info info) {
-    EngineState::Instance().RequestStopAll();
-    EngineState::Instance().ClearStopAll();
+    EngineState & state = EngineState::Instance();
+    state.RequestStopAll(true);
 
     napi_value result = nullptr;
     napi_get_undefined(env, &result);

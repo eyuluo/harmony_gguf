@@ -60,7 +60,7 @@ export struct ModelRegistryPage {
           message: '仅删除注册表项，不会删除本地文件',
           confirmText: '删除',
           onCancel: () => { this.pendingDelete = null; },
-          onConfirm: () => { this.confirmDelete(); }
+           onConfirm: () => { this.confirmDelete().catch(() => { this.pendingDelete = null; }); }
         })
       }
       if (this.showDeleteMissing) {
@@ -69,7 +69,7 @@ export struct ModelRegistryPage {
           message: '批量删除所有不存在的注册表项，不会删除本地文件',
           confirmText: '删除',
           onCancel: () => { this.showDeleteMissing = false; },
-          onConfirm: () => { this.confirmDeleteMissing(); }
+           onConfirm: () => { this.confirmDeleteMissing().catch(() => { this.showDeleteMissing = false; }); }
         })
       }
     }

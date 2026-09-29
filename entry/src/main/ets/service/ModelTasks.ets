@@ -22,3 +22,10 @@ export function loadModelTask(path: string, contextLength: number, threads: numb
     mmprojPath: mmprojPath
   });
 }
+
+@Concurrent
+export function unloadModelTask(modelId: number): void {
+  testNapi.stopAllGenerations();
+  testNapi.stopServer();
+  testNapi.unloadModel(modelId);
+}

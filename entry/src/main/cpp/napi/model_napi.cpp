@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <string>
 #include <sys/stat.h>
+#include <unordered_map>
+#include <vector>
 
 #include "engine_state.h"
 #include "engine_types.h"
@@ -254,6 +256,91 @@ static napi_value ParseMmprojMetadata(napi_env env, napi_callback_info info) {
     return result;
 }
 
+static napi_value FormatChatPrompt(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    bool is_array = false;
+    if (argc < 1 || napi_is_array(env, args[0], &is_array) != napi_ok || !is_array) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "messages must be an array");
+        return nullptr;
+    }
+    if (!EngineState::Instance().IsLoaded()) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::ModelNotLoaded), "model not loaded");
+        return nullptr;
+    }
+
+    uint32_t length = 0;
+    napi_get_array_length(env, args[0], &length);
+    if (length == 0) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "messages must not be empty");
+        return nullptr;
+    }
+
+    std::vector<std::string> roles;
+    std::vector<std::string> contents;
+    roles.reserve(length);
+    contents.reserve(length);
+    for (uint32_t i = 0; i < length; i++) {
+        napi_value item = nullptr;
+        napi_get_element(env, args[0], i, &item);
+        if (!napi_util::IsObject(env, item)) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "message must be an object");
+            return nullptr;
+        }
+        napi_value role_value = napi_util::GetProperty(env, item, "role");
+        napi_value content_value = napi_util::GetProperty(env, item, "content");
+        std::string role;
+        std::string content;
+        if (!napi_util::GetString(env, role_value, role) ||
+            !napi_util::GetString(env, content_value, content) ||
+            (role != "system" && role != "user" && role != "assistant" && role != "tool")) {
+            napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "invalid message");
+            return nullptr;
+        }
+        roles.push_back(std::move(role));
+        contents.push_back(std::move(content));
+    }
+
+    std::vector<llama_chat_message> messages;
+    messages.reserve(roles.size());
+    for (size_t i = 0; i < roles.size(); i++) {
+        messages.push_back({ roles[i].c_str(), contents[i].c_str() });
+    }
+
+    std::string tmpl = EngineState::Instance().ModelChatTemplate();
+    if (tmpl.empty()) {
+        static const std::unordered_map<std::string, const char *> templates = {
+            { "llama", "llama3" }, { "qwen2", "chatml" }, { "qwen2moe", "chatml" },
+            { "qwen3", "chatml" }, { "gemma", "gemma" }, { "gemma2", "gemma" },
+            { "mistral", "mistral-v7" }, { "deepseek", "deepseek3" },
+            { "deepseek2", "deepseek2" }, { "chatglm", "chatglm3" }, { "glm4", "chatglm4" }
+        };
+        const std::string architecture = EngineState::Instance().ModelMetaString("general.architecture");
+        auto it = templates.find(architecture);
+        tmpl = it == templates.end() ? "chatml" : it->second;
+    }
+
+    size_t buffer_size = 2048;
+    for (const auto & content : contents) {
+        buffer_size += content.size() * 2;
+    }
+    std::vector<char> buffer(buffer_size);
+    int32_t result_length = llama_chat_apply_template(tmpl.c_str(), messages.data(), messages.size(), true,
+                                                       buffer.data(), static_cast<int32_t>(buffer.size()));
+    if (result_length < 0) {
+        buffer.resize(static_cast<size_t>(-result_length));
+        result_length = llama_chat_apply_template(tmpl.c_str(), messages.data(), messages.size(), true,
+                                                   buffer.data(), static_cast<int32_t>(buffer.size()));
+    }
+    if (result_length <= 0) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), "failed to format chat prompt");
+        return nullptr;
+    }
+    return napi_util::NewString(env, std::string(buffer.data(), static_cast<size_t>(result_length)));
+}
+
 // loadModel(path: string, config?: LoadConfig): number (modelId)
 static napi_value LoadModel(napi_env env, napi_callback_info info) {
     size_t argc = 2;
@@ -330,6 +417,7 @@ void RegisterModelApi(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
         { "parseGgufMetadata", nullptr, ParseGgufMetadata, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "parseMmprojMetadata", nullptr, ParseMmprojMetadata, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "formatChatPrompt", nullptr, FormatChatPrompt, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "loadModel", nullptr, LoadModel, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "unloadModel", nullptr, UnloadModel, nullptr, nullptr, nullptr, napi_default, nullptr },
     };

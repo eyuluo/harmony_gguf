@@ -1,6 +1,6 @@
 import { AppState, Session, SessionMessage, SESSION_RUNNING } from '../../service/AppState';
 import { InferenceService } from '../../service/InferenceService';
-import { picker } from '@kit.CoreFileKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
 import { SessionList } from '../components/SessionList';
 import { EmptyState, LoadingState, FailedState } from '../components/StateViews';
 
@@ -12,6 +12,8 @@ export struct ChatPage {
   private inference: InferenceService = InferenceService.getInstance();
   @State input: string = '';
   @State attachments: string[] = [];
+  private messageScroller: Scroller = new Scroller();
+  private followMessages: boolean = true;
 
   build() {
     if (this.isWide) {
@@ -45,9 +47,6 @@ export struct ChatPage {
   @Builder
   detailArea() {
     Column() {
-      Text(this.appState.sessionVersion >= 0 ? '' : '')
-        .width(0)
-        .height(0)
       this.detailTopBar()
       if (this.appState.loading) {
         LoadingState({ subtitle: this.appState.modelInfo !== null ? this.appState.modelInfo.name : '解析元数据并准备推理引擎，请稍候' })
@@ -148,7 +147,7 @@ export struct ChatPage {
   @Builder
   messagesArea() {
     Column() {
-      Scroll() {
+      Scroll(this.messageScroller) {
         Column() {
           if (this.currentSession()!.messages.length === 0) {
             Column() {
@@ -171,13 +170,26 @@ export struct ChatPage {
           }
           ForEach(this.currentSession()!.messages, (message: SessionMessage) => {
             this.messageBubble(message)
-          }, (message: SessionMessage, index: number) => `${index}-${message.content.length}`)
+          }, (message: SessionMessage) => `${message.id}-${message.content.length}`)
         }
         .width('100%')
+        .onAreaChange(() => {
+          if (this.followMessages) {
+            this.messageScroller.scrollEdge(Edge.Bottom);
+          }
+        })
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 8, bottom: 12 })
       .layoutWeight(1)
+      .onDidScroll(() => {
+        this.followMessages = this.messageScroller.isAtEnd();
+      })
+      .onAreaChange(() => {
+        if (this.followMessages) {
+          this.messageScroller.scrollEdge(Edge.Bottom);
+        }
+      })
     }
     .layoutWeight(1)
     .width('100%')
@@ -330,15 +342,46 @@ export struct ChatPage {
     }
     try {
       const uris = await new picker.DocumentViewPicker(context).select({
-        maxSelectNumber: 1,
+        maxSelectNumber: 4,
         fileSuffixFilters: ['.png', '.jpg', '.jpeg', '.webp', '.gif']
       });
       if (uris.length > 0) {
-        this.attachments = this.attachments.concat(uris);
+        const copied: string[] = [];
+        const dir = context.filesDir + '/attachments';
+        try {
+          fileIo.mkdirSync(dir);
+        } catch (error) {
+          // 目录已存在时忽略错误。
+        }
+        for (let index = 0; index < uris.length; index++) {
+          const source = fileIo.openSync(uris[index], fileIo.OpenMode.READ_ONLY);
+          const suffix = this.imageSuffix(source.name);
+          const targetPath = `${dir}/image_${Date.now()}_${index}${suffix}`;
+          const target = fileIo.openSync(targetPath,
+            fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+          try {
+            await fileIo.copyFile(source.fd, target.fd);
+            copied.push(targetPath);
+          } finally {
+            fileIo.closeSync(source);
+            fileIo.closeSync(target);
+          }
+        }
+        this.attachments = this.attachments.concat(copied);
       }
     } catch (error) {
       return;
     }
+  }
+
+  private imageSuffix(name: string): string {
+    const dot = name.lastIndexOf('.');
+    if (dot < 0) {
+      return '.jpg';
+    }
+    const suffix = name.substring(dot).toLowerCase();
+    return suffix === '.png' || suffix === '.jpg' || suffix === '.jpeg' ||
+      suffix === '.webp' || suffix === '.gif' ? suffix : '.jpg';
   }
 
   private statsText(session: Session): string {

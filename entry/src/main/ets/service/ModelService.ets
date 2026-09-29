@@ -13,6 +13,7 @@ export class ModelService {
   private static instance: ModelService | null = null;
   private state: AppState | null = null;
   private context: common.Context | null = null;
+  private mmprojImporting: boolean = false;
 
   static getInstance(): ModelService {
     if (ModelService.instance === null) {
@@ -165,11 +166,16 @@ export class ModelService {
   }
 
   async importMmproj(model: StoredModelInfo): Promise<void> {
+    if (this.mmprojImporting) {
+      return;
+    }
+    this.mmprojImporting = true;
     const context = this.context!;
     const state = this.state!;
     let sourceFd = -1;
     let targetFd = -1;
     let targetPath = '';
+    let importCommitted = false;
     try {
       const uris = await new picker.DocumentViewPicker(context).select({
         maxSelectNumber: 1,
@@ -226,6 +232,7 @@ export class ModelService {
           fileSize: Number(parts[3])
         }
       });
+      importCommitted = true;
       state.selectedMmprojPath = '';
       await this.refreshModels();
     } catch (error) {
@@ -245,6 +252,14 @@ export class ModelService {
           hilog.error(DOMAIN, TAG, 'close target failed: %{public}s', String(closeError));
         }
       }
+      if (!importCommitted && targetPath.length > 0 && this.isFileExists(targetPath)) {
+        try {
+          fileIo.unlinkSync(targetPath);
+        } catch (removeError) {
+          hilog.warn(DOMAIN, TAG, 'remove incomplete mmproj failed: %{public}s', String(removeError));
+        }
+      }
+      this.mmprojImporting = false;
     }
   }
 
@@ -254,6 +269,7 @@ export class ModelService {
     if (model.mmproj !== null && state.selectedMmprojPath === model.mmproj.path) {
       state.selectedMmprojPath = '';
     }
+    const oldMmprojPath = model.mmproj === null ? '' : model.mmproj.path;
     await ModelStore.getInstance().init(context);
     await ModelStore.getInstance().saveModel({
       path: model.path,
@@ -267,6 +283,13 @@ export class ModelService {
       embdDim: model.embdDim,
       mmproj: null
     });
+    if (oldMmprojPath.length > 0 && this.isFileExists(oldMmprojPath)) {
+      try {
+        fileIo.unlinkSync(oldMmprojPath);
+      } catch (error) {
+        hilog.warn(DOMAIN, TAG, 'remove mmproj file failed: %{public}s', String(error));
+      }
+    }
     await this.refreshModels();
   }
 

@@ -127,6 +127,7 @@
 |------|------|------|------|
 | parseGgufMetadata | `(path: string) => ModelMetadata` | 元数据 | 解析 GGUF 元数据（仅读 vocab + 元数据，不加载权重） |
 | parseMmprojMetadata | `(path: string) => MmprojMetadata` | 能力 | 解析 mmproj 能力（视觉/音频），不加载权重 |
+| formatChatPrompt | `(messages: Array<{ role: string; content: string }>) => string` | prompt | 按当前已加载模型的聊天模板组装 prompt |
 | loadModel | `(path: string, config?: LoadConfig) => number` | modelId | 加载模型并返回句柄（单模型实例，恒为 1）；每池最大并发槽位数按 `config.parallel` 配置（软上限，槽位按需分配） |
 | unloadModel | `(modelId: number) => void` | 无 | 卸载模型、释放资源（先停止所有进行中的生成） |
 

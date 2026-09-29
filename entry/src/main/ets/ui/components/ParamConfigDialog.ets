@@ -61,8 +61,8 @@ export struct ParamConfigDialog {
             SettingStepper({ label: '最大生成长度', value: $localMaxTokens, min: 1, max: 8192, step: 64 })
             SettingStepper({ label: '温度', value: $localTemperature, min: 0, max: 2, step: 0.05,
               decimalPlaces: 2 })
-            SettingStepper({ label: '候选词数量', value: $localTopK, min: 0, max: 200, step: 1 })
-            SettingStepper({ label: '累计概率阈值', value: $localTopP, min: 0, max: 1, step: 0.01, decimalPlaces: 2 })
+            SettingStepper({ label: '候选词数量', value: $localTopK, min: 1, max: 200, step: 1 })
+            SettingStepper({ label: '累计概率阈值', value: $localTopP, min: 0.01, max: 1, step: 0.01, decimalPlaces: 2 })
             SettingStepper({ label: '重复惩罚', value: $localRepeatPenalty, min: 0.5, max: 2, step: 0.05,
               decimalPlaces: 2 })
           }

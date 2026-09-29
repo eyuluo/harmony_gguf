@@ -1,6 +1,2 @@
-
-hvigor ERROR: 00303217 Configuration Error
-Error Message: Invalid value of 'DEVECO_SDK_HOME' in the system environment path.
-
-* Try the following:
-  > Correct the value, run hvigorw --stop-daemon to stop the daemon process, and then try again.
+WARN: WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/pages/ChatPage.ets:185:8
+ 'onScroll' has been deprecated.

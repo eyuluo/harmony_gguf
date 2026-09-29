@@ -189,7 +189,10 @@ export class SessionStore {
 
   // 删除会话及其消息
   async deleteSession(id: number): Promise<void> {
+    let transactionStarted = false;
     try {
+      await this.store!.executeSql('BEGIN TRANSACTION');
+      transactionStarted = true;
       const sessionPredicates = new relationalStore.RdbPredicates('session');
       sessionPredicates.equalTo('id', id);
       await this.store!.delete(sessionPredicates);
@@ -197,7 +200,16 @@ export class SessionStore {
       const messagePredicates = new relationalStore.RdbPredicates('message');
       messagePredicates.equalTo('session_id', id);
       await this.store!.delete(messagePredicates);
+      await this.store!.executeSql('COMMIT');
+      transactionStarted = false;
     } catch (error) {
+      if (transactionStarted) {
+        try {
+          await this.store!.executeSql('ROLLBACK');
+        } catch (rollbackError) {
+          String(rollbackError);
+        }
+      }
       throw new Error('删除会话失败: ' + String(error));
     }
   }
@@ -267,7 +279,10 @@ export class SessionStore {
   }
 
   async replaceMessages(sessionId: number, messages: MessageRecord[]): Promise<void> {
+    let transactionStarted = false;
     try {
+      await this.store!.executeSql('BEGIN TRANSACTION');
+      transactionStarted = true;
       await this.clearMessages(sessionId);
       for (const message of messages) {
         await this.addMessage(sessionId, message.role, message.content, message.attachments, false);
@@ -276,7 +291,16 @@ export class SessionStore {
       const predicates = new relationalStore.RdbPredicates('session');
       predicates.equalTo('id', sessionId);
       await this.store!.update(sessionValues, predicates);
+      await this.store!.executeSql('COMMIT');
+      transactionStarted = false;
     } catch (error) {
+      if (transactionStarted) {
+        try {
+          await this.store!.executeSql('ROLLBACK');
+        } catch (rollbackError) {
+          String(rollbackError);
+        }
+      }
       throw new Error('替换消息失败: ' + String(error));
     }
   }

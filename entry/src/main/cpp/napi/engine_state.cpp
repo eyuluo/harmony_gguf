@@ -47,20 +47,22 @@ void EngineState::ReleaseUnusedSlot(int32_t seq_id) {
 }
 
 void EngineState::ReleaseSlot(llama_seq_id seq_id) {
+    // 先清理 KV，再释放槽位，避免新任务复用 seq_id 后被旧任务清空上下文。
+    {
+        std::lock_guard<std::mutex> lock(decode_mutex_);
+        if (ctx_ != nullptr) {
+            llama_memory_t mem = llama_get_memory(ctx_);
+            if (mem != nullptr) {
+                llama_memory_seq_rm(mem, seq_id, -1, -1);
+            }
+        }
+    }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
         if (seq_id >= 0 && static_cast<size_t>(seq_id) < slot_used_.size()) {
             slot_used_[static_cast<size_t>(seq_id)] = false;
         }
         slot_cv_.notify_one();
-    }
-    // 清除该序列的 KV cache（与 decode 互斥）
-    std::lock_guard<std::mutex> lock(decode_mutex_);
-    if (ctx_ != nullptr) {
-        llama_memory_t mem = llama_get_memory(ctx_);
-        if (mem != nullptr) {
-            llama_memory_seq_rm(mem, seq_id, -1, -1);
-        }
     }
 }
 
@@ -104,9 +106,10 @@ uint64_t EngineState::BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
 
 uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
                                             std::shared_ptr<std::atomic_bool> & out_stop_flag,
-                                            const std::function<bool()> & external_stop) {
+                                            const std::function<bool()> & external_stop,
+                                            std::chrono::milliseconds timeout) {
     std::unique_lock<std::mutex> lock(slot_mutex_);
-    slot_cv_.wait(lock, [this, pool, &external_stop]() {
+    const bool available = slot_cv_.wait_for(lock, timeout, [this, pool, &external_stop]() {
         if (slot_used_.empty() || n_slots_per_pool_ == 0) {
             return true; // 模型未加载，无法服务
         }
@@ -125,7 +128,7 @@ uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_se
         }
         return false;
     });
-    if (slot_used_.empty() || n_slots_per_pool_ == 0 || external_stop() ||
+    if (!available || slot_used_.empty() || n_slots_per_pool_ == 0 || external_stop() ||
         stop_all_.load(std::memory_order_relaxed)) {
         return 0;
     }
@@ -155,6 +158,10 @@ void EngineState::EndGenerate(uint64_t id, llama_seq_id seq_id) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         active_count_--;
+        if (active_count_ == 0 && clear_stop_all_when_idle_.load(std::memory_order_relaxed)) {
+            stop_all_.store(false, std::memory_order_relaxed);
+            clear_stop_all_when_idle_.store(false, std::memory_order_relaxed);
+        }
         gen_cv_.notify_all();
     }
 }
@@ -167,8 +174,9 @@ void EngineState::RequestStop(uint64_t id) {
     }
 }
 
-void EngineState::RequestStopAll() {
+void EngineState::RequestStopAll(bool clear_when_idle) {
     stop_all_.store(true, std::memory_order_relaxed);
+    clear_stop_all_when_idle_.store(clear_when_idle, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
         for (auto & kv : sessions_) {
@@ -179,6 +187,13 @@ void EngineState::RequestStopAll() {
         std::lock_guard<std::mutex> lock(slot_mutex_);
         slot_cv_.notify_all();
     }
+    if (clear_when_idle) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (active_count_ == 0) {
+            stop_all_.store(false, std::memory_order_relaxed);
+            clear_stop_all_when_idle_.store(false, std::memory_order_relaxed);
+        }
+    }
 }
 
 void EngineState::NotifySlotWaiters() {
@@ -187,6 +202,7 @@ void EngineState::NotifySlotWaiters() {
 }
 
 int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & config) {
+    std::lock_guard<std::mutex> model_op_lock(model_op_mutex_);
     // 停止并等待所有旧推理线程退出；free 在锁内完成，避免 use-after-free
     // 加载完成前保持 stop_all_，阻止加载期间新请求进入（Serve 阻塞请求被唤醒返回，NAPI 因未加载被拒）
     RequestStopAll();
@@ -310,6 +326,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
 }
 
 void EngineState::UnloadModel() {
+    std::lock_guard<std::mutex> model_op_lock(model_op_mutex_);
     // 停止并等待所有推理线程退出；free 在锁内完成，避免释放其正在使用的 ctx
     RequestStopAll();
     {

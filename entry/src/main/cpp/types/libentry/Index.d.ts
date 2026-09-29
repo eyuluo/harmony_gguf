@@ -56,6 +56,7 @@ export type GenerateCallback = (event: GenerateEvent, data: TokenData | Generate
 
 export const parseGgufMetadata: (path: string) => ModelMetadata;
 export const parseMmprojMetadata: (path: string) => MmprojMetadata;
+export const formatChatPrompt: (messages: Array<{ role: string; content: string }>) => string;
 export const loadModel: (path: string, config?: LoadConfig) => number;
 export const unloadModel: (modelId: number) => void;
 export const generate: (prompt: string, params: GenerateParams, callback: GenerateCallback) => number;

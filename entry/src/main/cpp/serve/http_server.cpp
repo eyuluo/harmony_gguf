@@ -47,8 +47,12 @@ public:
 
     void Finish(inference::GenResult result, const GenerateStats & stats) {
         std::lock_guard<std::mutex> lock(mutex_);
-        FlushPendingLocked();
-        result_ = result;
+        try {
+            FlushPendingLocked();
+            result_ = result;
+        } catch (...) {
+            result_ = inference::GenResult::Failed;
+        }
         stats_ = stats;
         finished_ = true;
         cv_.notify_all();
@@ -117,13 +121,18 @@ private:
 // 阻塞获取一个空闲槽位，失败返回 false（服务停止或模型未加载）
 bool AcquireSlot(llama_seq_id & seq_id, std::shared_ptr<std::atomic_bool> & stop_flag, uint64_t & id) {
     id = EngineState::Instance().BeginGenerateBlocking(SlotPool::Serve, seq_id, stop_flag,
-                                                       []() { return !HttpServer::Instance().IsRunning(); });
+                                                       []() { return !HttpServer::Instance().IsRunning(); },
+                                                       std::chrono::milliseconds::max());
     return id != 0;
 }
 
 // 从请求 JSON 提取生成参数
 bool ParseGenerateParams(const json & body, const std::string & prompt, GenerateParams & params) {
     params.prompt = prompt;
+
+    if (prompt.empty()) {
+        return false;
+    }
 
     if (body.contains("temperature")) {
         if (!body["temperature"].is_number()) {
@@ -216,7 +225,11 @@ std::string BuildChatPrompt(const std::string & tmpl, const json & messages) {
             !m["role"].is_string() || !m["content"].is_string()) {
             return "";
         }
-        roles.emplace_back(m["role"].get<std::string>());
+        const std::string role = m["role"].get<std::string>();
+        if (role != "system" && role != "user" && role != "assistant" && role != "tool") {
+            return "";
+        }
+        roles.emplace_back(role);
         contents.emplace_back(m["content"].get<std::string>());
     }
 
@@ -335,13 +348,14 @@ bool AuthFailed(const ServerConfig & config, const httplib::Request & req, httpl
 }
 
 // 流式生成：逐 token 写 SSE，chunk 结构由 make_chunk 决定
-void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink,
-                         const std::function<json(const std::string &)> & make_chunk) {
+bool RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink,
+                         const std::function<json(const std::string &, bool)> & make_chunk,
+                         const std::function<json(const char *)> & make_finish) {
     llama_seq_id seq_id = -1;
     std::shared_ptr<std::atomic_bool> stop_flag;
     uint64_t id = 0;
     if (!AcquireSlot(seq_id, stop_flag, id)) {
-        return;
+        return false;
     }
 
     auto write_event = [&](const std::string & event) {
@@ -360,23 +374,34 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
         ShouldStop);
     if (!ok) {
         EngineState::Instance().EndGenerate(id, seq_id);
-        std::string err = "data: {\"error\":\"generation failed\"}\n\n";
+        std::string err = "data: {\"error\":{\"message\":\"generation failed\",\"type\":\"server_error\"}}\n\n";
         sink.write(err.data(), err.size());
-        return;
+        return false;
     }
 
     std::string token;
+    bool first_chunk = true;
     while (chan->NextToken(token)) {
-        std::string data = "data: " + make_chunk(token).dump() + "\n\n";
+        std::string data = "data: " + make_chunk(token, first_chunk).dump() + "\n\n";
+        first_chunk = false;
         if (!write_event(data)) {
-            return;
+            chan->WaitFinish();
+            return false;
         }
     }
 
     if (chan->result() == inference::GenResult::Failed) {
-        std::string err = "data: {\"error\":\"generation failed\"}\n\n";
+        std::string err = "data: {\"error\":{\"message\":\"generation failed\",\"type\":\"server_error\"}}\n\n";
         if (!write_event(err)) {
-            return;
+            return false;
+        }
+    }
+
+    if (chan->result() == inference::GenResult::Completed ||
+        chan->result() == inference::GenResult::Aborted) {
+        std::string finish = "data: " + make_finish("stop").dump() + "\n\n";
+        if (!write_event(finish)) {
+            return false;
         }
     }
 
@@ -392,11 +417,11 @@ void RunStreamGeneration(const GenerateParams & params, httplib::DataSink & sink
     };
     std::string usage = "data: " + usage_chunk.dump() + "\n\n";
     if (!write_event(usage)) {
-        return;
+        return false;
     }
 
     std::string done = "data: [DONE]\n\n";
-    write_event(done);
+    return write_event(done);
 }
 
 // 非流式生成：一次性生成并写回响应，响应结构由 make_response 决定
@@ -407,7 +432,7 @@ void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
     uint64_t id = 0;
     if (!AcquireSlot(seq_id, stop_flag, id)) {
         res.status = 503;
-        res.set_content("{\"error\":\"server shutting down\"}", "application/json");
+        res.set_content("{\"error\":{\"message\":\"server shutting down\",\"type\":\"server_error\"}}", "application/json");
         return;
     }
 
@@ -420,7 +445,7 @@ void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
     if (!ok) {
         EngineState::Instance().EndGenerate(id, seq_id);
         res.status = 500;
-        res.set_content("{\"error\":\"generation failed\"}", "application/json");
+        res.set_content("{\"error\":{\"message\":\"generation failed\",\"type\":\"server_error\"}}", "application/json");
         return;
     }
 
@@ -428,7 +453,13 @@ void RunSyncGeneration(const GenerateParams & params, httplib::Response & res,
 
     if (chan->result() == inference::GenResult::Failed) {
         res.status = 500;
-        res.set_content("{\"error\":\"generation failed\"}", "application/json");
+        res.set_content("{\"error\":{\"message\":\"generation failed\",\"type\":\"server_error\"}}", "application/json");
+        return;
+    }
+
+    if (chan->result() == inference::GenResult::Aborted) {
+        res.status = 499;
+        res.set_content("{\"error\":{\"message\":\"generation aborted\",\"type\":\"server_error\"}}", "application/json");
         return;
     }
 
@@ -444,6 +475,9 @@ HttpServer & HttpServer::Instance() {
 
 int32_t HttpServer::Start(const ServerConfig & config) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) {
+        return error_code_value(ErrorCode::InvalidState);
+    }
     if (running_) {
         return error_code_value(ErrorCode::InvalidState);
     }
@@ -461,8 +495,13 @@ int32_t HttpServer::Start(const ServerConfig & config) {
 
     auto * svr = new httplib::Server();
 
+    svr->set_payload_max_length(4 * 1024 * 1024);
+
     // GET /health
-    svr->Get("/health", [](const httplib::Request &, httplib::Response & res) {
+    svr->Get("/health", [this](const httplib::Request & req, httplib::Response & res) {
+        if (AuthFailed(config_, req, res)) {
+            return;
+        }
         res.set_content("{\"status\":\"ok\"}", "application/json");
     });
 
@@ -472,6 +511,11 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
         std::string model_id = CurrentModelId();
+        if (model_id.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"model not loaded\"}", "application/json");
+            return;
+        }
         json body = {
             { "object", "list" },
             { "data", json::array({
@@ -481,6 +525,30 @@ int32_t HttpServer::Start(const ServerConfig & config) {
                     { "owned_by", "local" }
                 }
             }) }
+        };
+        res.set_content(body.dump(), "application/json");
+    });
+
+    // GET /v1/models/{id}
+    svr->Get(R"(/v1/models/(.+))", [this](const httplib::Request & req, httplib::Response & res) {
+        if (AuthFailed(config_, req, res)) {
+            return;
+        }
+        const std::string model_id = CurrentModelId();
+        if (model_id.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":{\"message\":\"model not loaded\",\"type\":\"server_error\"}}", "application/json");
+            return;
+        }
+        if (req.matches.size() < 2 || req.matches[1].str() != model_id) {
+            res.status = 404;
+            res.set_content("{\"error\":{\"message\":\"model not found\",\"type\":\"invalid_request_error\"}}", "application/json");
+            return;
+        }
+        json body = {
+            { "id", model_id },
+            { "object", "model" },
+            { "owned_by", "local" }
         };
         res.set_content(body.dump(), "application/json");
     });
@@ -521,17 +589,39 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
         std::string model_id = CurrentModelId();
+        if (model_id.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"model not loaded\"}", "application/json");
+            return;
+        }
 
         if (stream) {
+            const std::string stream_id = "cmpl-" + std::to_string(llama_time_us());
+            const int64_t created = llama_time_us() / 1000000;
             res.set_header("Cache-Control", "no-cache");
             res.set_header("Connection", "keep-alive");
             res.set_header("X-Accel-Buffering", "no");
             res.set_chunked_content_provider("text/event-stream",
-                [params](size_t, httplib::DataSink & sink) -> bool {
-                    RunStreamGeneration(params, sink, [](const std::string & t) {
-                        return json{ { "choices", json::array({ { { "index", 0 }, { "text", t } } }) } };
-                    });
-                    return true;
+                [params, stream_id, model_id, created](size_t, httplib::DataSink & sink) -> bool {
+                    const bool completed = RunStreamGeneration(params, sink,
+                        [stream_id, model_id, created](const std::string & t, bool) {
+                            return json{
+                                { "id", stream_id }, { "object", "text_completion" },
+                                { "created", created }, { "model", model_id },
+                                { "choices", json::array({ { { "index", 0 }, { "text", t } } }) }
+                            };
+                        },
+                        [stream_id, model_id, created](const char * reason) {
+                            return json{
+                                { "id", stream_id }, { "object", "text_completion" },
+                                { "created", created }, { "model", model_id },
+                                { "choices", json::array({ { { "index", 0 }, { "text", "" }, { "finish_reason", reason } } }) }
+                            };
+                        });
+                    if (completed) {
+                        sink.done();
+                    }
+                    return completed;
                 });
         } else {
             RunSyncGeneration(params, res, [model_id](const std::string & text, const GenerateStats & stats) {
@@ -574,6 +664,12 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
 
+        if (!EngineState::Instance().IsLoaded()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"model not loaded\"}", "application/json");
+            return;
+        }
+
         GenerateParams params;
         bool stream = false;
         try {
@@ -588,17 +684,43 @@ int32_t HttpServer::Start(const ServerConfig & config) {
             return;
         }
         std::string model_id = CurrentModelId();
+        if (model_id.empty()) {
+            res.status = 503;
+            res.set_content("{\"error\":\"model not loaded\"}", "application/json");
+            return;
+        }
 
         if (stream) {
+            const std::string stream_id = "chatcmpl-" + std::to_string(llama_time_us());
+            const int64_t created = llama_time_us() / 1000000;
             res.set_header("Cache-Control", "no-cache");
             res.set_header("Connection", "keep-alive");
             res.set_header("X-Accel-Buffering", "no");
             res.set_chunked_content_provider("text/event-stream",
-                [params](size_t, httplib::DataSink & sink) -> bool {
-                    RunStreamGeneration(params, sink, [](const std::string & t) {
-                        return json{ { "choices", json::array({ { { "index", 0 }, { "delta", { { "content", t } } } } }) } };
-                    });
-                    return true;
+                [params, stream_id, model_id, created](size_t, httplib::DataSink & sink) -> bool {
+                    const bool completed = RunStreamGeneration(params, sink,
+                        [stream_id, model_id, created](const std::string & t, bool first) {
+                            json delta = { { "content", t } };
+                            if (first) {
+                                delta["role"] = "assistant";
+                            }
+                            return json{
+                                { "id", stream_id }, { "object", "chat.completion.chunk" },
+                                { "created", created }, { "model", model_id },
+                                { "choices", json::array({ { { "index", 0 }, { "delta", delta } } }) }
+                            };
+                        },
+                        [stream_id, model_id, created](const char * reason) {
+                            return json{
+                                { "id", stream_id }, { "object", "chat.completion.chunk" },
+                                { "created", created }, { "model", model_id },
+                                { "choices", json::array({ { { "index", 0 }, { "delta", json::object() }, { "finish_reason", reason } } }) }
+                            };
+                        });
+                    if (completed) {
+                        sink.done();
+                    }
+                    return completed;
                 });
         } else {
             RunSyncGeneration(params, res, [model_id](const std::string & text, const GenerateStats & stats) {
@@ -645,25 +767,35 @@ int32_t HttpServer::Start(const ServerConfig & config) {
 }
 
 void HttpServer::Stop() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!running_ && !thread_.joinable()) {
-        return;
+    httplib::Server * svr = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!running_ && !thread_.joinable()) {
+            return;
+        }
+        if (stopping_) {
+            return;
+        }
+        stopping_ = true;
+        running_ = false;
+        svr = static_cast<httplib::Server *>(server_);
     }
 
-    running_ = false;
     EngineState::Instance().NotifySlotWaiters();
-
-    auto * svr = static_cast<httplib::Server *>(server_);
     if (svr != nullptr) {
         svr->stop();
     }
     if (thread_.joinable()) {
         thread_.join();
     }
-    if (svr != nullptr) {
-        delete svr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (server_ == svr) {
+            delete svr;
+            server_ = nullptr;
+        }
+        stopping_ = false;
     }
-    server_ = nullptr;
 }
 
 ServerInfo HttpServer::GetStatus() const {

@@ -2,6 +2,7 @@ import { StoredModelInfo } from './ModelStore';
 import { GenerateStats, LoadConfig } from 'libentry.so';
 
 export interface SessionMessage {
+  id: number;
   role: string;
   content: string;
   attachments: string[];
