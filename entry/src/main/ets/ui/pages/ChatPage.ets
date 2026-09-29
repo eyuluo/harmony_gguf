@@ -171,7 +171,7 @@ export struct ChatPage {
           }
           ForEach(this.currentSession()!.messages, (message: SessionMessage) => {
             this.messageBubble(message)
-          }, (_message: SessionMessage, index: number) => String(index))
+          }, (message: SessionMessage, index: number) => `${index}-${message.content.length}`)
         }
         .width('100%')
       }

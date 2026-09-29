@@ -1,0 +1,6 @@
+
+hvigor ERROR: 00303217 Configuration Error
+Error Message: Invalid value of 'DEVECO_SDK_HOME' in the system environment path.
+
+* Try the following:
+  > Correct the value, run hvigorw --stop-daemon to stop the daemon process, and then try again.
