@@ -1,4 +1,5 @@
 #include "http_server.h"
+#include "call_guide.h"
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -496,6 +497,8 @@ int32_t HttpServer::Start(const ServerConfig & config) {
     auto * svr = new httplib::Server();
 
     svr->set_payload_max_length(4 * 1024 * 1024);
+
+    RegisterCallGuide(*svr);
 
     // GET /health
     svr->Get("/health", [this](const httplib::Request & req, httplib::Response & res) {

@@ -8,7 +8,7 @@ export struct HeaderBar {
     Row() {
       Column() {
         Row() {
-          Image($r('app.media.ic_ai_chip'))
+          Image($r('app.media.icon'))
             .width(24)
             .height(24)
             .margin({ right: 8 })

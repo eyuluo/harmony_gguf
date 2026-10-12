@@ -171,6 +171,15 @@ export struct ServePage {
             .borderRadius(16)
             .margin({ bottom: 12 })
 
+            if (this.appState.serverRunning) {
+              Text('服务调用指南：http://localhost:5160/（在本机浏览器打开）')
+                .fontSize(13)
+                .fontColor('#B9B1FF')
+                .copyOption(CopyOptions.LocalDevice)
+                .width('100%')
+                .margin({ bottom: 12 })
+            }
+
             this.paramDetail()
 
             if (!this.isWide) {
