@@ -118,6 +118,8 @@ add_engine_test(test-memory-check harmony/test-memory-check.cpp)
 add_engine_test(test-napi-bridge harmony/test-napi-bridge.cpp)
 
 enable_testing()
+add_executable(test-napi-environments test-napi-environments.cpp)
+add_test(NAME napi-environments COMMAND test-napi-environments)
 add_executable(test-prompt-cache test-prompt-cache.cpp)
 target_include_directories(test-prompt-cache PRIVATE ${CPP_ROOT}/engine)
 add_test(NAME prompt-cache COMMAND test-prompt-cache)

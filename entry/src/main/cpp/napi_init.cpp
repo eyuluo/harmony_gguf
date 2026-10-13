@@ -2,17 +2,22 @@
 
 #include "engine_state.h"
 #include "http_server.h"
+#include "napi_environments.h"
 
 // 各模块的导出注册
 void RegisterModelApi(napi_env env, napi_value exports);
 void RegisterGenerateApi(napi_env env, napi_value exports);
 void RegisterServeApi(napi_env env, napi_value exports);
 
-static void CleanupNapiEnvironment(void *)
+static NapiEnvironments environments;
+
+static void CleanupNapiEnvironment(void * env)
 {
-    EngineState::Instance().RequestStopAll();
-    HttpServer::Instance().Stop();
-    EngineState::Instance().WaitGenerateEnd();
+    environments.Detach(env, []() {
+        EngineState::Instance().RequestStopAll();
+        HttpServer::Instance().Stop();
+        EngineState::Instance().WaitGenerateEnd();
+    });
 }
 
 EXTERN_C_START
@@ -21,7 +26,11 @@ static napi_value Init(napi_env env, napi_value exports)
     RegisterModelApi(env, exports);
     RegisterGenerateApi(env, exports);
     RegisterServeApi(env, exports);
-    napi_add_env_cleanup_hook(env, CleanupNapiEnvironment, nullptr);
+    if (napi_add_env_cleanup_hook(env, CleanupNapiEnvironment, env) != napi_ok) {
+        napi_throw_error(env, "1004", "无法注册原生运行环境清理钩子");
+        return nullptr;
+    }
+    environments.Attach(env);
     return exports;
 }
 EXTERN_C_END

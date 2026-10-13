@@ -3,6 +3,7 @@
 #include "error_code.h"
 #include "llama_inference.h"
 #include "request_slot.h"
+#include "napi_environments.h"
 
 #include <future>
 #include <thread>
@@ -135,6 +136,30 @@ int main(int argc, char ** argv) {
         t.assert_true("删除对话后槽位可复用", id_d != 0);
         t.assert_equal("优先使用已删除对话槽位", b, d);
         if (id_d != 0) { state.EndGenerate(id_d, d); }
+    });
+
+    t.test("工作环境回收后同一对话多轮与跨对话仍可执行", [&](testing & t) {
+        ModelFixture model;
+        if (!model.load(t, 1)) { return; }
+        auto & state = EngineState::Instance();
+        NapiEnvironments environments;
+        int main_env = 0, worker_env = 0;
+        environments.Attach(&main_env);
+        environments.Attach(&worker_env);
+        auto cleanup = [&]() {
+            state.RequestStopAll();
+            state.WaitGenerateEnd();
+        };
+        for (uint64_t conversation : {101u, 101u, 202u, 101u, 303u}) {
+            RequestFixture request;
+            request.id = state.BeginGenerate(SlotPool::Napi, request.seq, request.stop, conversation);
+            if (!t.assert_true("连续请求可分配唯一槽位", request.id != 0)) { break; }
+            request.end();
+            environments.Detach(&worker_env, cleanup);
+            t.assert_true("工作环境退出不留下全局停止状态", !state.StopAllRequested());
+        }
+        environments.Detach(&main_env, cleanup);
+        t.assert_true("最后一个环境退出仍会停止推理", state.StopAllRequested());
     });
 
     t.test("请求启动提前退出不会泄漏槽位", [&](testing & t) {

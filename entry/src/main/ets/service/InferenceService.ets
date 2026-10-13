@@ -327,7 +327,7 @@ export class InferenceService {
     } catch (error) {
       const reason = String(error);
       const code = (error as GenerateError).code;
-      if (code === 1005 || reason.indexOf('[error 1005]') >= 0) {
+      if (Number(code) === 1005 || reason.indexOf('error 1005') >= 0) {
         const attempts = (this.slotRetryCounts.get(sessionId) ?? 0) + 1;
         if (state.modelId > 0 && !state.loading) {
           this.slotRetryCounts.set(sessionId, attempts);

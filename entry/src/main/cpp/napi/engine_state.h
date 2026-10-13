@@ -149,6 +149,7 @@ private:
     std::vector<std::vector<llama_token>> cached_tokens_;
     llama_model * model_ = nullptr;
     llama_context * ctx_ = nullptr;
+    ggml_threadpool_t cpu_threadpool_ = nullptr;
     mtmd_context * mtmd_ctx_ = nullptr;
     uint32_t slot_context_ = 0;
     std::atomic<int32_t> context_threads_{0};

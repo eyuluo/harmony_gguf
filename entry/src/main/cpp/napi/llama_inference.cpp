@@ -141,6 +141,8 @@ GenResult RunGeneration(
     int64_t t_first = 0;
     bool first_token = true;
     bool stopped = false;
+    int64_t decode_us = 0;
+    int32_t decode_steps = 0;
     llama_token new_token_id = LLAMA_TOKEN_NULL;
 
     const uint32_t slot_ctx = state.slot_context();
@@ -313,11 +315,14 @@ GenResult RunGeneration(
             }
             cached.clear();
         }
-        evaluated_tokens = prompt_tokens;
         const int64_t t_prefill = llama_time_us();
 
         const int32_t n_batch = static_cast<int32_t>(llama_n_batch(ctx));
         if (n_batch <= 0) {
+            return GenResult::Failed;
+        }
+        BatchGuard prompt_batch(std::min(n_batch, n_prompt - reuse));
+        if (!prompt_batch.valid()) {
             return GenResult::Failed;
         }
         for (int32_t offset = reuse; offset < n_prompt;) {
@@ -325,10 +330,6 @@ GenResult RunGeneration(
                 return GenResult::Aborted;
             }
             const int32_t count = std::min(n_batch, n_prompt - offset);
-            BatchGuard prompt_batch(count);
-            if (!prompt_batch.valid()) {
-                return GenResult::Failed;
-            }
             for (int32_t i = 0; i < count; i++) {
                 prompt_batch.get().token[i] = prompt_tokens[static_cast<size_t>(offset + i)];
             }
@@ -353,6 +354,11 @@ GenResult RunGeneration(
         n_past = n_prompt;
         fprintf(stderr, "[Harmony-GGUF] 文本 prefill：总 %d tokens，复用 %d，计算 %d，耗时 %.1f ms\n",
             n_prompt, reuse, n_prompt - reuse, (llama_time_us() - t_prefill) / 1000.0);
+        if (cache_valid) {
+            evaluated_tokens = std::move(prompt_tokens);
+            evaluated_tokens.reserve(evaluated_tokens.size() +
+                std::min(static_cast<size_t>(params.max_tokens), static_cast<size_t>(slot_ctx - n_prompt)));
+        }
     }
 
     // 单 token batch：生成循环复用。prompt / 多模态 chunks decode 后已经产出首个 logits，
@@ -365,6 +371,7 @@ GenResult RunGeneration(
     one.get().n_seq_id[0] = 1;
     one.get().seq_id[0][0] = seq_id;
     one.get().logits[0] = 1;
+    std::vector<char> piece(256);
 
     for (int32_t i = 0; i < params.max_tokens; i++) {
         if (stop_requested()) {
@@ -382,15 +389,14 @@ GenResult RunGeneration(
             break;
         }
 
-        std::string piece(256, '\0');
-        int32_t n = llama_token_to_piece(vocab, new_token_id, piece.data(), static_cast<int32_t>(piece.size()), 0, true);
+        int32_t n = llama_token_to_piece(vocab, new_token_id, piece.data(), static_cast<int32_t>(piece.size() - 1), 0, true);
         if (n < 0) {
-            piece.resize(static_cast<size_t>(-n));
-            n = llama_token_to_piece(vocab, new_token_id, piece.data(), static_cast<int32_t>(piece.size()), 0, true);
+            piece.resize(static_cast<size_t>(-n) + 1);
+            n = llama_token_to_piece(vocab, new_token_id, piece.data(), static_cast<int32_t>(piece.size() - 1), 0, true);
         }
         if (n > 0) {
-            piece.resize(static_cast<size_t>(n));
-            on_token(piece.c_str());
+            piece[static_cast<size_t>(n)] = '\0';
+            on_token(piece.data());
         }
 
         out_stats.generated_tokens++;
@@ -407,6 +413,7 @@ GenResult RunGeneration(
         one.get().token[0] = new_token_id;
         one.get().pos[0] = n_past;
         int32_t rc = 0;
+        const int64_t t_decode = llama_time_us();
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             ActiveStopGuard active_stop(state, stop_flag.get());
@@ -415,6 +422,8 @@ GenResult RunGeneration(
                 new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
             }
         }
+        decode_us += llama_time_us() - t_decode;
+        ++decode_steps;
         if (rc != 0) {
             if (stop_requested()) {
                 stopped = true;
@@ -447,6 +456,8 @@ GenResult RunGeneration(
     }
 
     const int64_t t_end = llama_time_us();
+    fprintf(stderr, "[Harmony-GGUF] decode：%d 步，计算与等待 %.1f ms，%.2f tokens/s\n",
+        decode_steps, decode_us / 1000.0, decode_us > 0 ? decode_steps * 1000000.0 / decode_us : 0.0);
     if (!stopped && cache_valid) {
         std::lock_guard<std::mutex> lock(state.decode_mutex());
         state.cached_tokens(seq_id) = std::move(evaluated_tokens);

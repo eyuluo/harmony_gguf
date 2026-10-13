@@ -8,6 +8,7 @@
 - NAPI 模块名：`entry`，产物 `libentry.so`。ArkTS 侧 `import napi from 'libentry.so'`。
 - 生成接口为**异步流式**：推理在独立 pthread 执行，经 `napi_threadsafe_function` 逐 token 回调，不阻塞 UI。
 - **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型，但可同时处理多个生成任务（并发槽位数可配置，默认 2）。
+- 原生引擎由多个 NAPI 环境共享。taskpool 工作环境回收不停止全局推理或 Serve；仅最后一个原生模块环境退出时执行全局停止与等待，显式卸载模型仍按原有接口释放资源。
 
 ## 2. 数据结构
 

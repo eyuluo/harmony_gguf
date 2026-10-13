@@ -7,6 +7,7 @@
 #include "error_code.h"
 #include "mtmd.h"
 #include "conversation_slots.h"
+#include "ggml-cpu.h"
 
 // 停止生成的中止回调：返回 true 时 llama_decode 立即中止
 static bool abort_callback(void * /*data*/) {
@@ -110,7 +111,7 @@ uint64_t EngineState::BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
     }
     if (seq_id < 0) {
         std::lock_guard<std::mutex> lock(slot_mutex_);
-        fprintf(stderr, "[Harmony-GGUF] 槽位分配失败：来源=%s，每池容量=%u，停止状态=%d，占用=",
+        fprintf(stderr, "[Harmony-GGUF] 槽位分配失败：来源=%s，每池容量=%zu，停止状态=%d，占用=",
             pool == SlotPool::Napi ? "NAPI" : "Serve", n_slots_per_pool_, StopAllRequested());
         for (bool used : slot_used_) {
             fprintf(stderr, "%d", used ? 1 : 0);
@@ -272,8 +273,13 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
             mtmd_ctx_ = nullptr;
         }
         if (ctx_ != nullptr) {
+            llama_detach_threadpool(ctx_);
             llama_free(ctx_);
             ctx_ = nullptr;
+        }
+        if (cpu_threadpool_ != nullptr) {
+            ggml_threadpool_free(cpu_threadpool_);
+            cpu_threadpool_ = nullptr;
         }
         if (model_ != nullptr) {
             llama_model_free(model_);
@@ -331,6 +337,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         ctx_params.n_threads_batch = config.threads;
     }
     llama_context * ctx = nullptr;
+    ggml_threadpool_t cpu_threadpool = nullptr;
     if (!config.vocab_only) {
         ctx = llama_init_from_model(model, ctx_params);
         if (ctx == nullptr) {
@@ -340,6 +347,17 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
             return error_code_value(ErrorCode::ModelLoadFailed);
         }
         llama_set_abort_callback(ctx, abort_callback, nullptr);
+        auto threadpool_params = ggml_threadpool_params_default(llama_n_threads(ctx));
+        threadpool_params.poll = 0;
+        threadpool_params.paused = true;
+        cpu_threadpool = ggml_threadpool_new(&threadpool_params);
+        if (cpu_threadpool == nullptr) {
+            llama_free(ctx);
+            llama_model_free(model);
+            ClearStopAll();
+            return error_code_value(ErrorCode::OutOfMemory);
+        }
+        llama_attach_threadpool(ctx, cpu_threadpool, cpu_threadpool);
     }
 
     // 加载多模态视觉投影（mmproj）；加载失败仅禁用多模态，不阻断纯文本模型
@@ -366,6 +384,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         std::lock_guard<std::mutex> lock(mutex_);
         model_ = model;
         ctx_ = ctx;
+        cpu_threadpool_ = cpu_threadpool;
         mtmd_ctx_ = mctx;
         slot_context_ = n_ctx_seq; // 每槽位逻辑软上限（kv_unified 下 llama_n_ctx_seq 返回总容量，不可用）
         context_threads_ = ctx_params.n_threads;
@@ -401,8 +420,13 @@ void EngineState::UnloadModel() {
             mtmd_ctx_ = nullptr;
         }
         if (ctx_ != nullptr) {
+            llama_detach_threadpool(ctx_);
             llama_free(ctx_);
             ctx_ = nullptr;
+        }
+        if (cpu_threadpool_ != nullptr) {
+            ggml_threadpool_free(cpu_threadpool_);
+            cpu_threadpool_ = nullptr;
         }
         if (model_ != nullptr) {
             llama_model_free(model_);

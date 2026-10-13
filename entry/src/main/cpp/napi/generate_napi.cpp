@@ -56,6 +56,10 @@ void GenerateJsCallback(napi_env env, napi_value js_cb, void * /*context*/, void
     if (cb == nullptr) {
         return;
     }
+    if (env == nullptr || js_cb == nullptr) {
+        delete cb;
+        return;
+    }
 
     napi_value js_event = nullptr;
     napi_value js_data = napi_util::NewObject(env);
