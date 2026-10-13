@@ -1,2 +1,2 @@
-WARN: WARN: ArkTS:WARN File: D:/Project/Harmony_gguf/entry/src/main/ets/ui/pages/ChatPage.ets:185:8
- 'onScroll' has been deprecated.
+> hvigor WARN: If obfuscation is needed, enable obfuscation settings in this build process; failing to do so may prevent future obfuscation. 
+               Properly configure obfuscation rules to avoid runtime issues.
