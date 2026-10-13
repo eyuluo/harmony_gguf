@@ -182,7 +182,8 @@ struct Index {
         contextLength: this.appState.contextLength,
         threads: this.appState.threads,
         parallel: this.appState.parallel,
-        mmprojPath: mmprojPath
+        mmprojPath: mmprojPath,
+        imageMaxTokens: this.appState.imageMaxTokens
       };
       await this.inference.loadModel(model, config);
       if (this.appState.modelId > 0) {

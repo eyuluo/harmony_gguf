@@ -14,12 +14,13 @@ export function parseMmprojTask(path: string): string {
 
 @Concurrent
 export function loadModelTask(path: string, contextLength: number, threads: number, parallel: number,
-  mmprojPath: string): number {
+  mmprojPath: string, imageMaxTokens: number): number {
   return testNapi.loadModel(path, {
     contextLength: contextLength,
     threads: threads,
     parallel: parallel,
-    mmprojPath: mmprojPath
+    mmprojPath: mmprojPath,
+    imageMaxTokens: imageMaxTokens
   });
 }
 

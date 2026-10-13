@@ -1,6 +1,7 @@
-import { AppState, Session, SessionMessage, SESSION_RUNNING } from '../../service/AppState';
+import { AppState, Session, SessionMessage, SESSION_RUNNING, SESSION_QUEUED } from '../../service/AppState';
 import { InferenceService } from '../../service/InferenceService';
-import { fileIo, picker } from '@kit.CoreFileKit';
+import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SessionList } from '../components/SessionList';
 import { EmptyState, LoadingState, FailedState } from '../components/StateViews';
 
@@ -12,6 +13,8 @@ export struct ChatPage {
   private inference: InferenceService = InferenceService.getInstance();
   @State input: string = '';
   @State attachments: string[] = [];
+  @State selectingAttachment: boolean = false;
+  @State attachmentError: string = '';
   private messageScroller: Scroller = new Scroller();
   private followMessages: boolean = true;
 
@@ -102,7 +105,7 @@ export struct ChatPage {
             .fontSize(8)
             .fontColor('#B9B1FF')
             .margin({ right: 5 })
-          Text('推理中')
+          Text(this.currentSession()!.status === SESSION_QUEUED ? '等待推理槽位' : '推理中')
             .fontSize(12)
             .fontColor('#B9B1FF')
         }
@@ -208,16 +211,17 @@ export struct ChatPage {
         if (message.attachments.length > 0) {
           Flex({ wrap: FlexWrap.Wrap }) {
             ForEach(message.attachments, (uri: string) => {
-              Image(uri)
+              Image(fileUri.getUriFromPath(uri))
                 .width(72)
                 .height(72)
+                .objectFit(ImageFit.Cover)
                 .borderRadius(8)
                 .margin({ right: 8, bottom: 8 })
             }, (uri: string) => uri)
           }
           .width('100%')
         }
-         Text(message.content.length > 0 ? message.content : '…')
+         Text(message.error ?? (message.content.length > 0 ? message.content : '…'))
            .fontSize(15)
            .fontColor(message.content.length > 0 ? '#E6E6E6' : '#6C6C6C')
            .lineHeight(22)
@@ -235,47 +239,71 @@ export struct ChatPage {
   inputBar() {
     Column() {
       if (this.attachments.length > 0) {
-        Row() {
-          ForEach(this.attachments, (uri: string) => {
-            Image(uri)
-              .width(52)
-              .height(52)
-              .borderRadius(8)
-              .margin({ right: 8 })
-          }, (uri: string) => uri)
+        Scroll() {
+          Row({ space: 8 }) {
+            ForEach(this.attachments, (uri: string) => {
+              Column() {
+                Image(fileUri.getUriFromPath(uri))
+                  .width(64)
+                  .height(64)
+                  .objectFit(ImageFit.Cover)
+                  .borderRadius(8)
+                  .onError(() => { this.attachmentError = '图片预览失败，请重新选择图片'; })
+                Button('移除')
+                  .height(24)
+                  .fontSize(11)
+                  .padding({ left: 8, right: 8 })
+                  .backgroundColor('#2C2D33')
+                  .fontColor('#B9B1FF')
+                  .margin({ top: 4 })
+                  .onClick(() => { this.attachments = this.attachments.filter((path: string) => path !== uri); })
+              }
+            }, (uri: string) => uri)
+          }
         }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Auto)
         .width('100%')
         .padding({ left: 4, bottom: 10 })
       }
+      if (this.attachmentError.length > 0) {
+        Text(this.attachmentError)
+          .fontSize(12)
+          .fontColor('#FF9B9B')
+          .width('100%')
+          .margin({ bottom: 6 })
+      }
+      TextInput({ placeholder: this.appState.modelId > 0 ? '输入消息...' : '请先加载模型', text: this.input })
+        .width('100%')
+        .height(44)
+        .enabled(this.appState.modelId > 0 && !this.appState.loading)
+        .onChange((value: string) => this.input = value)
+        .onSubmit(() => this.send())
+        .backgroundColor('#1E1F24')
+        .fontColor('#F5F5F5')
+        .placeholderColor('#66FFFFFF')
+        .borderWidth(1)
+        .borderColor('#2C2D33')
+        .borderRadius(12)
+        .padding({ left: 16, right: 16 })
       Row() {
-        TextInput({ placeholder: this.appState.modelId > 0 ? '输入消息...' : '请先加载模型', text: this.input })
-          .layoutWeight(1)
+        Button(this.selectingAttachment ? '读取中' : '添加图片')
+          .width(96)
           .height(44)
-          .enabled(this.appState.modelId > 0 && !this.appState.loading)
-          .onChange((value: string) => this.input = value)
-          .onSubmit(() => this.send())
-          .backgroundColor('#1E1F24')
-          .fontColor('#F5F5F5')
-          .placeholderColor('#66FFFFFF')
-          .borderWidth(1)
-          .borderColor('#2C2D33')
-          .borderRadius(12)
-          .padding({ left: 16, right: 16 })
-        Button('⊕')
-          .width(42)
-          .height(44)
-          .enabled(this.appState.modelId > 0 && !this.appState.loading)
-          .margin({ left: 8 })
+          .padding({ left: 8, right: 8 })
+          .enabled(this.appState.modelId > 0 && !this.appState.loading && !this.selectingAttachment &&
+            this.attachments.length < 4)
           .onClick(() => this.selectAttachment())
           .backgroundColor('#1E1F24')
           .fontColor('#B9B1FF')
-          .fontSize(20)
+          .fontSize(14)
           .borderRadius(12)
+        Blank()
         Button(this.isGenerating() ? '停止' : '发送')
           .width(64)
           .height(44)
           .margin({ left: 8 })
-          .enabled(this.appState.modelId > 0 &&
+          .enabled(this.appState.modelId > 0 && (this.isGenerating() || !this.selectingAttachment) &&
             (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0))
           .onClick(() => {
             if (this.isGenerating()) {
@@ -291,7 +319,9 @@ export struct ChatPage {
           .borderRadius(12)
       }
       .width('100%')
+      .margin({ top: 8 })
     }
+    .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: 14 })
     .backgroundColor('#18191D')
   }
@@ -312,11 +342,12 @@ export struct ChatPage {
 
   private isGenerating(): boolean {
     const s = this.currentSession();
-    return s !== null && s.status === SESSION_RUNNING;
+    return s !== null && (s.status === SESSION_RUNNING || s.status === SESSION_QUEUED);
   }
 
   private send(): void {
-    if (this.appState.modelId === 0 || this.input.trim().length === 0 && this.attachments.length === 0) {
+    if (this.appState.modelId === 0 || this.selectingAttachment || this.isGenerating() ||
+      this.input.trim().length === 0 && this.attachments.length === 0) {
       return;
     }
     let session = this.currentSession();
@@ -332,45 +363,55 @@ export struct ChatPage {
     const atts = this.attachments.slice();
     this.input = '';
     this.attachments = [];
+    this.attachmentError = '';
     this.inference.generate(session.id, prompt, atts);
   }
 
   async selectAttachment(): Promise<void> {
+    if (this.selectingAttachment || this.attachments.length >= 4) {
+      return;
+    }
     const context = this.getUIContext().getHostContext();
     if (!context) {
       return;
     }
+    this.selectingAttachment = true;
+    this.attachmentError = '';
     try {
       const uris = await new picker.DocumentViewPicker(context).select({
-        maxSelectNumber: 4,
-        fileSuffixFilters: ['.png', '.jpg', '.jpeg', '.webp', '.gif']
+        maxSelectNumber: 4 - this.attachments.length,
+        fileSuffixFilters: ['.png', '.jpg', '.jpeg', '.gif']
       });
       if (uris.length > 0) {
         const copied: string[] = [];
         const dir = context.filesDir + '/attachments';
-        try {
+        if (!fileIo.accessSync(dir)) {
           fileIo.mkdirSync(dir);
-        } catch (error) {
-          // 目录已存在时忽略错误。
         }
         for (let index = 0; index < uris.length; index++) {
           const source = fileIo.openSync(uris[index], fileIo.OpenMode.READ_ONLY);
-          const suffix = this.imageSuffix(source.name);
-          const targetPath = `${dir}/image_${Date.now()}_${index}${suffix}`;
-          const target = fileIo.openSync(targetPath,
-            fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
           try {
-            await fileIo.copyFile(source.fd, target.fd);
-            copied.push(targetPath);
+            const suffix = this.imageSuffix(source.name);
+            const targetPath = `${dir}/image_${Date.now()}_${index}${suffix}`;
+            const target = fileIo.openSync(targetPath,
+              fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+            try {
+              await fileIo.copyFile(source.fd, target.fd);
+              copied.push(targetPath);
+            } finally {
+              fileIo.closeSync(target);
+            }
           } finally {
             fileIo.closeSync(source);
-            fileIo.closeSync(target);
           }
         }
         this.attachments = this.attachments.concat(copied);
       }
     } catch (error) {
-      return;
+      hilog.error(0x0000, 'ChatPage', '图片读取失败：%{public}s', String(error));
+      this.attachmentError = '图片读取失败，请选择 PNG、JPEG 或 GIF 图片';
+    } finally {
+      this.selectingAttachment = false;
     }
   }
 

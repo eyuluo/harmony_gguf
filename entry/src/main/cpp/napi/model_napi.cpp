@@ -329,12 +329,12 @@ static napi_value FormatChatPrompt(napi_env env, napi_callback_info info) {
     std::vector<char> buffer(buffer_size);
     int32_t result_length = llama_chat_apply_template(tmpl.c_str(), messages.data(), messages.size(), true,
                                                        buffer.data(), static_cast<int32_t>(buffer.size()));
-    if (result_length < 0) {
-        buffer.resize(static_cast<size_t>(-result_length));
+    if (result_length > static_cast<int32_t>(buffer.size())) {
+        buffer.resize(static_cast<size_t>(result_length));
         result_length = llama_chat_apply_template(tmpl.c_str(), messages.data(), messages.size(), true,
                                                    buffer.data(), static_cast<int32_t>(buffer.size()));
     }
-    if (result_length <= 0) {
+    if (result_length <= 0 || result_length > static_cast<int32_t>(buffer.size())) {
         napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), "failed to format chat prompt");
         return nullptr;
     }
@@ -362,6 +362,7 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
         uint32_t context_length = 0;
         int32_t threads = 0;
         uint32_t parallel = config.parallel;
+        int32_t image_max_tokens = config.image_max_tokens;
         std::string mmproj_path;
         if ((napi_util::HasProperty(env, args[1], "contextLength") &&
              !napi_util::GetOptionalUint32(env, args[1], "contextLength", context_length)) ||
@@ -371,7 +372,9 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
              !napi_util::GetOptionalUint32(env, args[1], "parallel", parallel)) ||
             (napi_util::HasProperty(env, args[1], "mmprojPath") &&
              !napi_util::GetOptionalString(env, args[1], "mmprojPath", mmproj_path)) ||
-            threads < 0 || parallel == 0) {
+            (napi_util::HasProperty(env, args[1], "imageMaxTokens") &&
+             !napi_util::GetOptionalInt32(env, args[1], "imageMaxTokens", image_max_tokens)) ||
+            image_max_tokens < 0 || image_max_tokens > 4096 || threads < 0 || parallel == 0) {
             napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "invalid load config");
             return nullptr;
         }
@@ -379,6 +382,7 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
         config.threads = threads;
         config.parallel = parallel;
         config.mmproj_path = mmproj_path;
+        config.image_max_tokens = image_max_tokens;
     }
 
     int32_t code = EngineState::Instance().LoadModel(path, config);

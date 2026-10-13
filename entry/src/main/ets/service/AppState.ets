@@ -7,6 +7,7 @@ export interface SessionMessage {
   content: string;
   attachments: string[];
   contentParts: string[];
+  error?: string;
 }
 
 export interface Session {
@@ -79,6 +80,7 @@ export class AppState {
   contextLength: number = 0;
   threads: number = 0;
   parallel: number = 1;
+  imageMaxTokens: number = 1024;
 
   temperature: number = 0.8;
   topK: number = 40;

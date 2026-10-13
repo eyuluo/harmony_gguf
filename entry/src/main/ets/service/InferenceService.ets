@@ -41,6 +41,9 @@ export class InferenceService {
   private context: common.Context | null = null;
   private persistChain: Promise<void> = Promise.resolve();
   private nextMessageId: number = 1;
+  private slotRetryCounts: Map<number, number> = new Map();
+  private slotRetryTimer: number = -1;
+  private generationQueue: number[] = [];
 
   static getInstance(): InferenceService {
     if (InferenceService.instance === null) {
@@ -107,11 +110,12 @@ export class InferenceService {
       return;
     }
     state.loading = true;
+    this.cancelQueuedGenerations();
     state.loadingModelPath = model.path;
     state.loadFailed = false;
     try {
       const modelId = await taskpool.execute(loadModelTask, model.path, config.contextLength ?? 0,
-        config.threads ?? 0, config.parallel ?? 1, config.mmprojPath ?? '') as number;
+        config.threads ?? 0, config.parallel ?? 1, config.mmprojPath ?? '', config.imageMaxTokens ?? 1024) as number;
       state.modelId = modelId;
       state.modelInfo = model;
       state.activeModelPath = model.path;
@@ -135,8 +139,14 @@ export class InferenceService {
       return;
     }
     const modelId = state.modelId;
+    state.loading = true;
+    this.cancelQueuedGenerations();
+    state.loadingModelPath = state.activeModelPath;
     taskpool.execute(unloadModelTask, modelId).catch((error: Error) => {
       hilog.error(DOMAIN, TAG, 'unload model failed: %{public}s', String(error));
+    }).finally(() => {
+      state.loading = false;
+      state.loadingModelPath = '';
     });
     state.modelId = 0;
     state.modelInfo = null;
@@ -185,6 +195,9 @@ export class InferenceService {
       }
     }
     state.sessions = remaining;
+    this.slotRetryCounts.delete(sessionId);
+    testNapi.deleteConversation(sessionId);
+    this.generationQueue = this.generationQueue.filter((id: number) => id !== sessionId);
     if (state.activeSessionId === sessionId) {
       state.activeSessionId = remaining.length > 0 ? remaining[0].id : 0;
     }
@@ -250,7 +263,7 @@ export class InferenceService {
       id: session.id,
       title: title,
       messages: messages,
-      status: SESSION_RUNNING,
+      status: SESSION_QUEUED,
       createdAt: session.createdAt,
       updatedAt: Date.now(),
       pinned: session.pinned,
@@ -262,11 +275,8 @@ export class InferenceService {
       pendingPrompt: prompt
     });
 
-    if (this.runningCount() > state.parallel) {
-      this.updateStatus(sessionId, SESSION_QUEUED);
-      return;
-    }
-    this.startGenerate(sessionId, prompt);
+    this.generationQueue.push(sessionId);
+    this.dequeueNext();
   }
 
   stopGeneration(sessionId: number): void {
@@ -275,6 +285,8 @@ export class InferenceService {
       return;
     }
     if (session.status === SESSION_QUEUED) {
+      this.slotRetryCounts.delete(sessionId);
+      this.generationQueue = this.generationQueue.filter((id: number) => id !== sessionId);
       this.updateStatus(sessionId, SESSION_IDLE);
       this.dequeueNext();
       return;
@@ -299,6 +311,7 @@ export class InferenceService {
     try {
       const generationPrompt = session === null ? prompt : this.buildPrompt(session);
       const requestId = testNapi.generate(generationPrompt, {
+        conversationId: sessionId,
         maxTokens: state.maxTokens,
         temperature: state.temperature,
         topK: state.topK,
@@ -309,15 +322,29 @@ export class InferenceService {
       }, (event: string, data: object) => {
         this.onGenerateEvent(sessionId, event, data);
       });
+      this.slotRetryCounts.delete(sessionId);
       this.updateRequestId(sessionId, requestId);
     } catch (error) {
+      const reason = String(error);
+      const code = (error as GenerateError).code;
+      if (code === 1005 || reason.indexOf('[error 1005]') >= 0) {
+        const attempts = (this.slotRetryCounts.get(sessionId) ?? 0) + 1;
+        if (state.modelId > 0 && !state.loading) {
+          this.slotRetryCounts.set(sessionId, attempts);
+          this.updateStatus(sessionId, SESSION_QUEUED);
+          this.generationQueue.unshift(sessionId);
+          this.scheduleSlotRetry();
+          return;
+        }
+      }
+      this.slotRetryCounts.delete(sessionId);
       hilog.error(DOMAIN, TAG, 'generate failed: %{public}s', String(error));
-      this.failGeneration(sessionId);
+      this.failGeneration(sessionId, String(error));
       this.dequeueNext();
     }
   }
 
-  private failGeneration(sessionId: number): void {
+  private failGeneration(sessionId: number, reason: string): void {
     const session = this.findSession(sessionId);
     if (session === null) {
       return;
@@ -327,7 +354,15 @@ export class InferenceService {
     if (last >= 0) {
       const message = messages[last];
       if (message.role === 'assistant' && message.content.length === 0 && message.contentParts.length === 0) {
-        messages = messages.slice(0, last);
+        messages = messages.slice();
+        messages[last] = {
+          id: message.id,
+          role: message.role,
+          content: '',
+          error: `推理启动失败：${reason}`,
+          attachments: [],
+          contentParts: []
+        };
       }
     }
     this.replaceSession(this.copyWith(session, {
@@ -388,6 +423,22 @@ export class InferenceService {
       updated.pendingPrompt = '';
     } else if (event === 'error') {
       this.finalizeStreamingMessage(updated);
+      const error = data as GenerateError;
+      hilog.error(DOMAIN, TAG, '推理失败 %{public}d：%{public}s', error.code, error.message);
+      const nextMessages = updated.messages.slice();
+      const last = nextMessages.length - 1;
+      if (last >= 0 && nextMessages[last].content.length === 0) {
+        const message = nextMessages[last];
+        nextMessages[last] = {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          error: `推理失败（${error.code}）：${error.message}`,
+          attachments: message.attachments,
+          contentParts: []
+        };
+        updated.messages = nextMessages;
+      }
       updated.status = SESSION_FAILED;
       updated.requestId = 0;
       updated.pendingPrompt = '';
@@ -400,22 +451,68 @@ export class InferenceService {
 
   private dequeueNext(): void {
     const state = this.state!;
+    if (state.modelId === 0 || state.loading || this.runningCount() >= (state.loadedConfig?.parallel ?? 1)) {
+      return;
+    }
     const queued = this.findQueued();
     if (queued === null) {
       return;
     }
     this.updateStatus(queued.id, SESSION_RUNNING);
+    this.generationQueue = this.generationQueue.filter((id: number) => id !== queued.id);
     this.startGenerate(queued.id, queued.pendingPrompt);
+    if (this.findSession(queued.id)?.status === SESSION_RUNNING) {
+      this.dequeueNext();
+    }
+  }
+
+  private scheduleSlotRetry(): void {
+    if (this.slotRetryTimer >= 0) {
+      return;
+    }
+    const config = this.state!.loadedConfig;
+    this.slotRetryTimer = setTimeout(() => {
+      this.slotRetryTimer = -1;
+      if (this.state!.loadedConfig !== config) {
+        const queued = this.findQueued();
+        if (queued !== null) {
+          this.failGeneration(queued.id, '模型已切换，请重新发送');
+        }
+        this.slotRetryCounts.clear();
+        return;
+      }
+      this.dequeueNext();
+    }, 250);
+  }
+
+  private cancelQueuedGenerations(): void {
+    if (this.slotRetryTimer >= 0) {
+      clearTimeout(this.slotRetryTimer);
+      this.slotRetryTimer = -1;
+    }
+    for (const id of this.generationQueue) {
+      const session = this.findSession(id);
+      if (session !== null && session.status === SESSION_QUEUED) {
+        this.updateStatus(id, SESSION_IDLE);
+      }
+    }
+    this.generationQueue = [];
+    this.slotRetryCounts.clear();
   }
 
   private buildPrompt(session: Session): string {
     const messages: ChatPromptMessage[] = [];
     for (let index = 0; index < session.messages.length - 1; index++) {
       const message = session.messages[index];
-      if (message.content.length === 0) {
+      let content = message.content;
+      if (index === session.messages.length - 2 && message.role === 'user' && message.attachments.length > 0) {
+        content = '<__media__>'.repeat(message.attachments.length) + '\n' +
+          (content.length > 0 ? content : '请描述图片。');
+      }
+      if (content.length === 0) {
         continue;
       }
-      messages.push({ role: message.role, content: message.content });
+      messages.push({ role: message.role, content: content });
     }
     return testNapi.formatChatPrompt(messages);
   }
@@ -447,7 +544,8 @@ export class InferenceService {
     return (previous.contextLength ?? 0) === (next.contextLength ?? 0) &&
       (previous.threads ?? 0) === (next.threads ?? 0) &&
       (previous.parallel ?? 1) === (next.parallel ?? 1) &&
-      (previous.mmprojPath ?? '') === (next.mmprojPath ?? '');
+      (previous.mmprojPath ?? '') === (next.mmprojPath ?? '') &&
+      (previous.imageMaxTokens ?? 1024) === (next.imageMaxTokens ?? 1024);
   }
 
   private runningCount(): number {
@@ -462,9 +560,9 @@ export class InferenceService {
   }
 
   private findQueued(): Session | null {
-    const state = this.state!;
-    for (const s of state.sessions) {
-      if (s.status === SESSION_QUEUED) {
+    for (const id of this.generationQueue) {
+      const s = this.findSession(id);
+      if (s !== null && s.status === SESSION_QUEUED) {
         return s;
       }
     }
@@ -533,6 +631,9 @@ export class InferenceService {
     }
     if (patch.lastStats !== undefined) {
       result.lastStats = patch.lastStats;
+    }
+    if (patch.pendingPrompt !== undefined) {
+      result.pendingPrompt = patch.pendingPrompt;
     }
     return result;
   }

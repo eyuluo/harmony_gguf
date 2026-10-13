@@ -6,6 +6,7 @@
 
 #include "error_code.h"
 #include "mtmd.h"
+#include "conversation_slots.h"
 
 // 停止生成的中止回调：返回 true 时 llama_decode 立即中止
 static bool abort_callback(void * /*data*/) {
@@ -23,19 +24,22 @@ EngineState & EngineState::Instance() {
     return instance;
 }
 
-int32_t EngineState::AcquireSlotLocked(SlotPool pool) {
+int32_t EngineState::AcquireSlotLocked(SlotPool pool, uint64_t conversation_id) {
     if (n_slots_per_pool_ == 0 || slot_used_.empty()) {
         return -1;
     }
     const size_t begin = (pool == SlotPool::Napi) ? 0 : n_slots_per_pool_;
     const size_t end = begin + n_slots_per_pool_;
-    for (size_t i = begin; i < end && i < slot_used_.size(); i++) {
-        if (!slot_used_[i]) {
-            slot_used_[i] = true;
-            return static_cast<int32_t>(i);
-        }
+    const size_t selected = SelectConversationSlot(slot_used_, slot_owners_, slot_recency_,
+        begin, end, conversation_id);
+    if (selected == slot_used_.size()) {
+        return -1;
     }
-    return -1;
+    slot_reset_[selected] = conversation_id == 0 || slot_owners_[selected] != conversation_id;
+    slot_owners_[selected] = conversation_id;
+    slot_recency_[selected] = ++recency_clock_;
+    slot_used_[selected] = true;
+    return static_cast<int32_t>(selected);
 }
 
 void EngineState::ReleaseUnusedSlot(int32_t seq_id) {
@@ -50,9 +54,15 @@ void EngineState::ReleaseSlot(llama_seq_id seq_id) {
     // 先清理 KV，再释放槽位，避免新任务复用 seq_id 后被旧任务清空上下文。
     {
         std::lock_guard<std::mutex> lock(decode_mutex_);
+        {
+            std::lock_guard<std::mutex> slot_lock(slot_mutex_);
+            if (slot_owners_[seq_id] == 0) {
+                cached_tokens_[seq_id].clear();
+            }
+        }
         if (ctx_ != nullptr) {
             llama_memory_t mem = llama_get_memory(ctx_);
-            if (mem != nullptr) {
+            if (mem != nullptr && cached_tokens_[seq_id].empty()) {
                 llama_memory_seq_rm(mem, seq_id, -1, -1);
             }
         }
@@ -88,20 +98,65 @@ uint64_t EngineState::CommitGenerate(int32_t seq_id, llama_seq_id & out_seq_id,
 }
 
 uint64_t EngineState::BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
-                                    std::shared_ptr<std::atomic_bool> & out_stop_flag) {
+                                    std::shared_ptr<std::atomic_bool> & out_stop_flag, uint64_t conversation_id) {
     int32_t seq_id = -1;
+    bool reset = false;
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
-        seq_id = AcquireSlotLocked(pool);
+        seq_id = AcquireSlotLocked(pool, conversation_id);
+        if (seq_id >= 0) {
+            reset = slot_reset_[seq_id];
+        }
     }
     if (seq_id < 0) {
+        std::lock_guard<std::mutex> lock(slot_mutex_);
+        fprintf(stderr, "[Harmony-GGUF] 槽位分配失败：来源=%s，每池容量=%u，停止状态=%d，占用=",
+            pool == SlotPool::Napi ? "NAPI" : "Serve", n_slots_per_pool_, StopAllRequested());
+        for (bool used : slot_used_) {
+            fprintf(stderr, "%d", used ? 1 : 0);
+        }
+        fprintf(stderr, "\n");
         return 0;
     }
     uint64_t id = CommitGenerate(seq_id, out_seq_id, out_stop_flag);
     if (id == 0) {
         ReleaseUnusedSlot(seq_id);
+    } else if (reset) {
+        std::lock_guard<std::mutex> lock(decode_mutex_);
+        cached_tokens_[seq_id].clear();
+        if (ctx_ != nullptr) {
+            auto mem = llama_get_memory(ctx_);
+            if (mem != nullptr) {
+                llama_memory_seq_rm(mem, seq_id, -1, -1);
+            }
+        }
     }
     return id;
+}
+
+void EngineState::DeleteConversation(uint64_t conversation_id) {
+    if (conversation_id == 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lifecycle_lock(mutex_);
+    std::lock_guard<std::mutex> decode_lock(decode_mutex_);
+    std::lock_guard<std::mutex> slot_lock(slot_mutex_);
+    for (size_t i = 0; i < slot_owners_.size(); ++i) {
+        if (slot_owners_[i] != conversation_id) {
+            continue;
+        }
+        slot_owners_[i] = 0;
+        slot_recency_[i] = 0;
+        if (!slot_used_[i]) {
+            cached_tokens_[i].clear();
+            if (ctx_ != nullptr) {
+                auto mem = llama_get_memory(ctx_);
+                if (mem != nullptr) {
+                    llama_memory_seq_rm(mem, static_cast<llama_seq_id>(i), -1, -1);
+                }
+            }
+        }
+    }
 }
 
 uint64_t EngineState::BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
@@ -155,6 +210,8 @@ void EngineState::EndGenerate(uint64_t id, llama_seq_id seq_id) {
         return;
     }
     ReleaseSlot(seq_id);
+    fprintf(stderr, "[Harmony-GGUF] 请求 %llu 已释放槽位 %d\n",
+        static_cast<unsigned long long>(id), seq_id);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         active_count_--;
@@ -224,6 +281,7 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         }
         slot_context_ = 0;
         context_threads_ = 0;
+        cached_tokens_.clear();
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
@@ -293,7 +351,8 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         } else {
             mtmd_context_params mparams = mtmd_context_params_default();
             mparams.use_gpu = false;                                  // 纯 CPU 后端
-            mparams.n_threads = config.threads > 0 ? config.threads : 4;
+            mparams.n_threads = ctx_params.n_threads_batch;
+            mparams.image_max_tokens = config.image_max_tokens > 0 ? config.image_max_tokens : -1;
             mparams.warmup = false;                                   // 跳过预热，缩短加载耗时
             mparams.print_timings = false;
             mctx = mtmd_init_from_file(config.mmproj_path.c_str(), model, mparams);
@@ -315,6 +374,10 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         std::lock_guard<std::mutex> lock(slot_mutex_);
         n_slots_per_pool_ = parallel;
         slot_used_.assign(static_cast<size_t>(parallel) * 2, false);
+        cached_tokens_.resize(slot_used_.size());
+        slot_owners_.assign(slot_used_.size(), 0);
+        slot_recency_.assign(slot_used_.size(), 0);
+        slot_reset_.assign(slot_used_.size(), true);
     }
 
     ClearStopAll();
@@ -347,6 +410,7 @@ void EngineState::UnloadModel() {
         }
         slot_context_ = 0;
         context_threads_ = 0;
+        cached_tokens_.clear();
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);

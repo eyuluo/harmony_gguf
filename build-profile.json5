@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\hyshi\\.ohos\\config\\default_Harmony_gguf_4T77aVQkDrxajiBWbzxDO3O-vP0vSODAUfNxFZXUK-w=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001A3B5BC55DD0450CF5C856EDBF5EBBE41E838BA2A46FCB76EA0B26F68CCF927F70DF674540673C",
+          "profile": "C:\\Users\\hyshi\\.ohos\\config\\default_Harmony_gguf_4T77aVQkDrxajiBWbzxDO3O-vP0vSODAUfNxFZXUK-w=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\hyshi\\.ohos\\config\\default_Harmony_gguf_4T77aVQkDrxajiBWbzxDO3O-vP0vSODAUfNxFZXUK-w=.p12",
+          "storePassword": "0000001A8E8A8B9E84BE2CDCF58409ED98B5C36E09182297B0EB54F15B7AFAB539087DBEEA73C0BE1550"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",

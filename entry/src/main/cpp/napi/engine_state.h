@@ -29,6 +29,7 @@ struct LoadConfig {
     int32_t  threads = 0;        // 0 = 使用默认线程数
     uint32_t parallel = 1;       // 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个）
     bool vocab_only = false;
+    int32_t image_max_tokens = 1024;
     std::string mmproj_path;     // mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态）
 };
 
@@ -84,13 +85,16 @@ public:
 
     // decode/采样的互斥锁：RunGeneration 在每次 decode 前加锁。
     std::mutex & decode_mutex() { return decode_mutex_; }
+    std::mutex & mtmd_mutex() { return mtmd_mutex_; }
+    std::vector<llama_token> & cached_tokens(llama_seq_id seq_id) { return cached_tokens_[seq_id]; }
 
     // ---- 生成会话（槽位）管理 ----
 
     // 非阻塞从指定槽位池分配一个槽位：返回 request id（>0），该池无空闲槽位返回 0。
     // 成功时同时写入 seq_id 与 per-request 停止标志。
     uint64_t BeginGenerate(SlotPool pool, llama_seq_id & out_seq_id,
-                           std::shared_ptr<std::atomic_bool> & out_stop_flag);
+                           std::shared_ptr<std::atomic_bool> & out_stop_flag, uint64_t conversation_id = 0);
+    void DeleteConversation(uint64_t conversation_id);
 
     // 阻塞从指定槽位池分配一个槽位：等待该池空闲槽位，external_stop 或全局停止时返回 0。
     uint64_t BeginGenerateBlocking(SlotPool pool, llama_seq_id & out_seq_id,
@@ -130,7 +134,7 @@ public:
 private:
     EngineState() = default;
 
-    int32_t AcquireSlotLocked(SlotPool pool);
+    int32_t AcquireSlotLocked(SlotPool pool, uint64_t conversation_id = 0);
     void ReleaseUnusedSlot(int32_t seq_id);
     void ReleaseSlot(llama_seq_id seq_id);
     // 已分配槽位后：注册会话、递增活跃计数、写回输出参数，返回 request id
@@ -141,6 +145,8 @@ private:
     std::mutex model_op_mutex_;      // 串行化 loadModel/unloadModel
     std::condition_variable gen_cv_; // 等待所有生成结束
     std::mutex decode_mutex_;        // 保护 llama_decode/采样/KV cache 操作
+    std::mutex mtmd_mutex_;
+    std::vector<std::vector<llama_token>> cached_tokens_;
     llama_model * model_ = nullptr;
     llama_context * ctx_ = nullptr;
     mtmd_context * mtmd_ctx_ = nullptr;
@@ -157,6 +163,10 @@ private:
     std::mutex slot_mutex_;
     std::condition_variable slot_cv_;
     std::vector<bool> slot_used_;      // seq_id 占用表：Napi 池 [0, n_slots_per_pool_)，Serve 池 [n_slots_per_pool_, 2*n_slots_per_pool_)
+    std::vector<uint64_t> slot_owners_;
+    std::vector<uint64_t> slot_recency_;
+    std::vector<bool> slot_reset_;
+    uint64_t recency_clock_ = 0;
     size_t n_slots_per_pool_ = 0;      // 每池最大并发槽位数（软上限，未加载时为 0）
 
     std::mutex sessions_mutex_;

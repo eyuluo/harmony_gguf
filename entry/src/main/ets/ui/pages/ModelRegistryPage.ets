@@ -205,6 +205,7 @@ export struct ModelRegistryPage {
         }
         if (item.info.mmproj === null) {
           Button('导入投影器')
+            .enabled(!this.modelService.isModelLocked(item.info))
             .onClick(() => { this.modelService.importMmproj(item.info); })
             .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor('#2C2D33')
@@ -212,6 +213,7 @@ export struct ModelRegistryPage {
             .borderRadius(12)
         }
         Button('删除注册表')
+          .enabled(!this.modelService.isModelLocked(item.info))
           .onClick(() => { this.pendingDelete = item.info; })
           .margin({ left: 5, right: 5, bottom: 6 })
           .backgroundColor('#25262B')
@@ -276,12 +278,14 @@ export struct ModelRegistryPage {
         }
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Center }) {
           Button(this.appState.selectedMmprojPath === item.info.mmproj.path ? '已选择投影器' : '选择投影器')
+            .enabled(this.modelService.canSelectMmproj(item.info))
             .onClick(() => { this.modelService.toggleMmprojSelection(item.info); })
             .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor(this.appState.selectedMmprojPath === item.info.mmproj.path ? '#25352A' : '#25262B')
             .fontColor(this.appState.selectedMmprojPath === item.info.mmproj.path ? '#A8DDB5' : '#A0A0A0')
             .borderRadius(10)
           Button('删除投影器')
+            .enabled(!this.modelService.isModelLocked(item.info))
             .onClick(() => { this.modelService.deleteMmproj(item.info); })
             .margin({ left: 5, right: 5, bottom: 6 })
             .backgroundColor('#2C2D33')
@@ -289,6 +293,13 @@ export struct ModelRegistryPage {
             .borderRadius(10)
         }
         .width('100%')
+        if (this.modelService.isModelLocked(item.info)) {
+          Text('模型正在使用此绑定，请先卸载模型再修改投影器')
+            .fontSize(12)
+            .fontColor('#A0A0A0')
+            .width('100%')
+            .margin({ top: 6 })
+        }
       }
       .width('100%')
       .padding({ top: 2, bottom: 4 })
@@ -309,8 +320,9 @@ export struct ModelRegistryPage {
     if (target === null) {
       return;
     }
-    if (this.appState.activeModelPath === target.path) {
-      this.inference.unload();
+    if (this.modelService.isModelLocked(target)) {
+      this.pendingDelete = null;
+      return;
     }
     await this.modelService.deleteRegistry(target);
     this.pendingDelete = null;

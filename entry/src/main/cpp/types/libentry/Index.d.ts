@@ -22,9 +22,11 @@ export interface LoadConfig {
   threads?: number;
   parallel?: number;
   mmprojPath?: string;
+  imageMaxTokens?: number;
 }
 
 export interface GenerateParams {
+  conversationId?: number;
   temperature?: number;
   topK?: number;
   topP?: number;
@@ -61,6 +63,7 @@ export const loadModel: (path: string, config?: LoadConfig) => number;
 export const unloadModel: (modelId: number) => void;
 export const generate: (prompt: string, params: GenerateParams, callback: GenerateCallback) => number;
 export const stopGenerate: (requestId: number) => void;
+export const deleteConversation: (conversationId: number) => void;
 export const stopAllGenerations: () => void;
 
 export interface ServerConfig {

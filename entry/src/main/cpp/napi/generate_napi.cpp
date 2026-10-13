@@ -14,6 +14,7 @@
 #include "error_code.h"
 #include "llama_inference.h"
 #include "napi_util.h"
+#include "request_slot.h"
 #include "ts_fn.h"
 
 namespace {
@@ -166,13 +167,20 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     }
 
     // 分配并发槽位（非阻塞，槽位满则报错）
+    int32_t conversation_id = 0;
+    if (napi_util::HasProperty(env, args[1], "conversationId") &&
+        (!napi_util::GetOptionalInt32(env, args[1], "conversationId", conversation_id) || conversation_id <= 0)) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "conversationId must be a positive integer");
+        return nullptr;
+    }
     llama_seq_id seq_id = -1;
     std::shared_ptr<std::atomic_bool> stop_flag;
-    uint64_t request_id = EngineState::Instance().BeginGenerate(SlotPool::Napi, seq_id, stop_flag);
+    uint64_t request_id = EngineState::Instance().BeginGenerate(SlotPool::Napi, seq_id, stop_flag, conversation_id);
     if (request_id == 0) {
         napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidState), "no available generation slot");
         return nullptr;
     }
+    RequestSlotGuard slot_guard(request_id, seq_id);
 
     GenerateParams params;
     params.prompt = prompt;
@@ -276,7 +284,8 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
             } else if (result == inference::GenResult::Aborted) {
                 SendStopped(cb, stats);
             } else {
-                SendError(cb, error_code_value(ErrorCode::InferenceFailed), "generation failed");
+                SendError(cb, error_code_value(ErrorCode::InferenceFailed),
+                    stats.error_message.empty() ? "推理失败，请检查模型与设备日志" : stats.error_message.c_str());
             }
             cb->Release();
             delete cb;
@@ -292,6 +301,7 @@ static napi_value Generate(napi_env env, napi_callback_info info) {
     }
 
     napi_value result = nullptr;
+    slot_guard.TransferToWorker();
     napi_create_int64(env, static_cast<int64_t>(request_id), &result);
     return result;
 }
@@ -324,10 +334,26 @@ static napi_value StopAllGenerations(napi_env env, napi_callback_info info) {
     return result;
 }
 
+static napi_value DeleteConversation(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    int32_t id = 0;
+    if (argc == 0 || !napi_util::GetInt32(env, args[0], id) || id <= 0) {
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "conversationId must be positive");
+        return nullptr;
+    }
+    EngineState::Instance().DeleteConversation(id);
+    napi_value result = nullptr;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
 // 注册生成相关接口
 void RegisterGenerateApi(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
         { "generate", nullptr, Generate, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "deleteConversation", nullptr, DeleteConversation, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "stopGenerate", nullptr, StopGenerate, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "stopAllGenerations", nullptr, StopAllGenerations, nullptr, nullptr, nullptr, napi_default, nullptr },
     };

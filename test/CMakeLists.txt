@@ -118,6 +118,9 @@ add_engine_test(test-memory-check harmony/test-memory-check.cpp)
 add_engine_test(test-napi-bridge harmony/test-napi-bridge.cpp)
 
 enable_testing()
+add_executable(test-prompt-cache test-prompt-cache.cpp)
+target_include_directories(test-prompt-cache PRIVATE ${CPP_ROOT}/engine)
+add_test(NAME prompt-cache COMMAND test-prompt-cache)
 add_test(NAME m2-napi-bridge COMMAND test-napi-bridge)
 set_tests_properties(m2-napi-bridge PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

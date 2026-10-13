@@ -27,6 +27,31 @@ export class ModelService {
     this.context = context;
   }
 
+  isModelLocked(model: StoredModelInfo): boolean {
+    const state = this.state;
+    if (state === null) {
+      return false;
+    }
+    const boundPath = state.loadedConfig?.mmprojPath ?? '';
+    return (state.loading && state.loadingModelPath === model.path) ||
+      (state.modelId > 0 && state.activeModelPath === model.path) ||
+      (state.modelId > 0 && boundPath.length > 0 && model.mmproj?.path === boundPath);
+  }
+
+  canSelectMmproj(model: StoredModelInfo): boolean {
+    return !this.isModelLocked(model) && !this.isMmprojSelectionLocked();
+  }
+
+  private isMmprojSelectionLocked(): boolean {
+    const state = this.state;
+    if (state === null) {
+      return false;
+    }
+    return state.loading || (state.modelId > 0 &&
+      (state.loadedConfig?.mmprojPath ?? '').length > 0 &&
+      state.selectedMmprojPath === state.loadedConfig?.mmprojPath);
+  }
+
   async refreshModels(): Promise<void> {
     const state = this.state!;
     const context = this.context!;
@@ -166,7 +191,7 @@ export class ModelService {
   }
 
   async importMmproj(model: StoredModelInfo): Promise<void> {
-    if (this.mmprojImporting) {
+    if (this.mmprojImporting || this.isModelLocked(model)) {
       return;
     }
     this.mmprojImporting = true;
@@ -213,6 +238,9 @@ export class ModelService {
 
       // 关联到模型并持久化
       await ModelStore.getInstance().init(context);
+      if (this.isModelLocked(model)) {
+        return;
+      }
       await ModelStore.getInstance().saveModel({
         path: model.path,
         name: model.name,
@@ -233,7 +261,9 @@ export class ModelService {
         }
       });
       importCommitted = true;
-      state.selectedMmprojPath = '';
+      if (!this.isMmprojSelectionLocked()) {
+        state.selectedMmprojPath = '';
+      }
       await this.refreshModels();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'import mmproj failed: %{public}s', String(error));
@@ -264,13 +294,19 @@ export class ModelService {
   }
 
   async deleteMmproj(model: StoredModelInfo): Promise<void> {
+    if (this.isModelLocked(model)) {
+      return;
+    }
     const context = this.context!;
     const state = this.state!;
+    const oldMmprojPath = model.mmproj === null ? '' : model.mmproj.path;
+    await ModelStore.getInstance().init(context);
+    if (this.isModelLocked(model)) {
+      return;
+    }
     if (model.mmproj !== null && state.selectedMmprojPath === model.mmproj.path) {
       state.selectedMmprojPath = '';
     }
-    const oldMmprojPath = model.mmproj === null ? '' : model.mmproj.path;
-    await ModelStore.getInstance().init(context);
     await ModelStore.getInstance().saveModel({
       path: model.path,
       name: model.name,
@@ -294,7 +330,7 @@ export class ModelService {
   }
 
   toggleMmprojSelection(model: StoredModelInfo): void {
-    if (model.mmproj === null) {
+    if (model.mmproj === null || !this.canSelectMmproj(model)) {
       return;
     }
     const state = this.state!;
@@ -326,6 +362,9 @@ export class ModelService {
   }
 
   async deleteRegistry(model: StoredModelInfo): Promise<void> {
+    if (this.isModelLocked(model)) {
+      return;
+    }
     const state = this.state!;
     if (model.mmproj !== null && state.selectedMmprojPath === model.mmproj.path) {
       state.selectedMmprojPath = '';
@@ -337,6 +376,9 @@ export class ModelService {
   async deleteMissingRegistries(): Promise<void> {
     const state = this.state!;
     for (const item of state.models) {
+      if (this.isModelLocked(item.info)) {
+        continue;
+      }
       if (!item.exists) {
         await ModelStore.getInstance().removeModel(item.info.path);
       } else if (!item.mmprojExists && item.info.mmproj !== null) {

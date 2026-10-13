@@ -31,6 +31,7 @@
 | threads | number? | 默认线程数 | 推理线程数 |
 | parallel | number? | 1 | 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个） |
 | mmprojPath | string? | 空 | mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态） |
+| imageMaxTokens | number? | 1024 | 每张图片视觉 token 上限，整数 0–4096；0 使用投影器默认值。仅对支持可变分辨率的投影器生效；降低可减少视觉编码与 prefill 开销，但可能损失小字和定位细节。修改后需重新加载模型。 |
 
 ### 2.3 GenerateParams（生成参数）
 
@@ -43,6 +44,7 @@
 | maxTokens | number? | 512 | 最大生成长度 |
 | threads | number? | 0 | 线程数（0 = 默认） |
 | images | string[]? | 空 | 图片文件路径（多模态，需已加载 mmproj；空 = 纯文本） |
+| conversationId | number? | 无 | 正整数对话标识；同一对话复用其缓存归属，不传时按独立请求执行。 |
 
 ### 2.4 GenerateStats（生成统计）
 
@@ -138,6 +140,7 @@
 | generate | `(prompt: string, params: GenerateParams, callback: GenerateCallback) => number` | requestId | 发起一次流式生成，返回 requestId 用于停止 |
 | stopGenerate | `(requestId: number) => void` | 无 | 停止指定 requestId 的生成 |
 | stopAllGenerations | `() => void` | 无 | 停止所有进行中的生成 |
+| deleteConversation | `(conversationId: number) => void` | 无 | 清理对话缓存归属；活跃任务需先停止，其缓存于任务结束时清理。 |
 
 `GenerateCallback`：`(event: 'token' | 'done' | 'error' | 'stopped', data: TokenData | GenerateStats | GenerateError) => void`
 
@@ -147,7 +150,12 @@
 - `error`：出错，`data` 为 `GenerateError`。
 
 > 并发语义：每池最多同时有 `LoadConfig.parallel` 个任务在执行（软上限，槽位按需分配）；池满时抛错（错误码 1005）。
-> 每个槽位独立维护 KV cache 序列与采样器；达到槽位上下文软上限时自动滑动上下文窗口（context shift），不截断长对话。
+> 应用排队使用已加载的 `LoadConfig.parallel`，不使用尚未生效的设置值。收到 1005 时，请求保留为排队状态，每 250 ms 检查空闲执行机会；直到获得槽位、用户停止或模型切换。排队不会重复添加用户消息。
+> 每个槽位独立维护 KV cache 序列与采样器；支持 KV 位移的模型达到槽位上下文软上限时自动滑动上下文窗口（context shift）。不支持位移的模型在容量用尽时结束生成。
+
+`maxTokens` 仅限制输出 token 数，输入 token 数可以大于 `maxTokens`。纯文本输入达到每槽位上下文容量时，保留首 token 和最近的输入，使 prefill 后至少剩余一个生成位置；因此超长历史的较早内容不再进入本轮模型上下文，界面历史仍保留。支持 KV 位移的模型在输出期间继续滑动窗口。多模态输入需整体满足每槽位位置容量，超限返回 1004 并说明可降低图片 token 上限、减少图片或提高加载上下文。
+
+缓存按 `conversationId` 归属，生成结束仅让出执行机会，不取消对话归属。同一对话优先获取自己的空闲缓存槽位；同一对话不能同时执行两个请求。缓存槽位数量为 NAPI 池的 parallel；缓存不足时回收最久未使用的空闲对话缓存，原对话消息仍保留，下次根据历史重建。不同对话不能复用彼此的 KV。纯文本仅在前缀一致且底层支持安全裁剪时增量 prefill，至少重算最后一个输入 token；停止、失败、多模态或发生窗口位移时清理本次缓存。删除对话清理其缓存归属，切换模型清除全部缓存。
 
 ### 4.3 本地 API 服务（Serve）
 

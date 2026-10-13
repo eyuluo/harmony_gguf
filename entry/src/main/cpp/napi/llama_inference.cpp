@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "engine_state.h"
+#include "prompt_cache.h"
 #include "llama.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
@@ -147,29 +149,46 @@ GenResult RunGeneration(
 
     int32_t n_prompt = 0;
     llama_pos n_past = 0;
+    std::vector<llama_token> evaluated_tokens;
+    bool cache_valid = params.images.empty() && mem != nullptr && llama_memory_can_shift(mem);
 
     if (!params.images.empty()) {
+        {
+            std::lock_guard<std::mutex> lock(state.decode_mutex());
+            state.cached_tokens(seq_id).clear();
+            if (mem != nullptr && !llama_memory_seq_rm(mem, seq_id, -1, -1)) {
+                return GenResult::Failed;
+            }
+        }
         // === 多模态：mtmd tokenize + 逐 chunk decode（prompt 含图片）===
         mtmd_context * mctx = state.mtmd_ctx();
         if (mctx == nullptr) {
+            out_stats.error_message = "未加载可用的视觉投影器，请加载匹配的 mmproj";
             return GenResult::Failed;
         }
 
-        std::vector<mtmd_bitmap *> bitmaps;
+        using BitmapPtr = std::unique_ptr<mtmd_bitmap, decltype(&mtmd_bitmap_free)>;
+        std::vector<BitmapPtr> bitmap_storage;
+        std::vector<const mtmd_bitmap *> bitmaps;
         bitmaps.reserve(params.images.size());
         for (const auto & path : params.images) {
+            if (stop_requested()) {
+                return GenResult::Aborted;
+            }
             int nx = 0;
             int ny = 0;
             int nc = 0;
-            unsigned char * data = stbi_load(path.c_str(), &nx, &ny, &nc, 3);
+            std::unique_ptr<unsigned char, decltype(&stbi_image_free)> data(
+                stbi_load(path.c_str(), &nx, &ny, &nc, 3), stbi_image_free);
             if (data == nullptr) {
-                for (auto * b : bitmaps) {
-                    mtmd_bitmap_free(b);
-                }
                 return GenResult::Failed;
             }
-            bitmaps.push_back(mtmd_bitmap_init(static_cast<uint32_t>(nx), static_cast<uint32_t>(ny), data));
-            stbi_image_free(data);
+            bitmap_storage.emplace_back(mtmd_bitmap_init(static_cast<uint32_t>(nx),
+                static_cast<uint32_t>(ny), data.get()), mtmd_bitmap_free);
+            if (!bitmap_storage.back()) {
+                return GenResult::Failed;
+            }
+            bitmaps.push_back(bitmap_storage.back().get());
         }
 
         // prompt 未含媒体标记时，在最前为每张图片补一个标记
@@ -183,41 +202,80 @@ GenResult RunGeneration(
         }
 
         mtmd_input_text text{ prompt.c_str(), prompt.size(), true, true };
-        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
-        int32_t res = mtmd_tokenize(mctx, chunks, &text, bitmaps.data(), bitmaps.size());
+        std::unique_ptr<mtmd_input_chunks, decltype(&mtmd_input_chunks_free)> chunks(
+            mtmd_input_chunks_init(), mtmd_input_chunks_free);
+        std::unique_lock<std::mutex> mtmd_lock(state.mtmd_mutex());
+        if (stop_requested()) {
+            return GenResult::Aborted;
+        }
+        int32_t res = mtmd_tokenize(mctx, chunks.get(), &text, bitmaps.data(), bitmaps.size());
         if (res != 0) {
-            mtmd_input_chunks_free(chunks);
-            for (auto * b : bitmaps) {
-                mtmd_bitmap_free(b);
-            }
             return GenResult::Failed;
         }
 
-        out_stats.prompt_tokens = static_cast<int32_t>(mtmd_helper_get_n_tokens(chunks));
+        out_stats.prompt_tokens = static_cast<int32_t>(mtmd_helper_get_n_tokens(chunks.get()));
+        if (slot_ctx > 0 && mtmd_helper_get_n_pos(chunks.get()) > static_cast<llama_pos>(slot_ctx)) {
+            out_stats.error_message = "图片与文字超过加载上下文，请降低图片 token 上限、减少图片或提高上下文长度";
+            return GenResult::Failed;
+        }
+        const int64_t t_prepared = llama_time_us();
+        int64_t encode_us = 0;
+        int64_t decode_us = 0;
 
         const int32_t n_batch = static_cast<int32_t>(llama_n_batch(ctx));
-        {
-            std::lock_guard<std::mutex> lock(state.decode_mutex());
-            ActiveStopGuard active_stop(state, stop_flag.get());
-            res = mtmd_helper_eval_chunks(mctx, ctx, chunks, 0, seq_id, n_batch, true, &n_past);
+        const size_t n_chunks = mtmd_input_chunks_size(chunks.get());
+        if (n_batch <= 0 || n_chunks == 0) {
+            return GenResult::Failed;
         }
-
-        mtmd_input_chunks_free(chunks);
-        for (auto * b : bitmaps) {
-            mtmd_bitmap_free(b);
-        }
-
-        if (res != 0) {
+        for (size_t i = 0; i < n_chunks; ++i) {
             if (stop_requested()) {
                 return GenResult::Aborted;
             }
+            const auto * chunk = mtmd_input_chunks_get(chunks.get(), i);
+            const bool is_text = mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_TEXT;
+            const bool is_last = i + 1 == n_chunks;
+            if (!is_text) {
+                const int64_t t_encode = llama_time_us();
+                res = mtmd_encode_chunk(mctx, chunk);
+                encode_us += llama_time_us() - t_encode;
+                if (res != 0) {
+                    return stop_requested() ? GenResult::Aborted : GenResult::Failed;
+                }
+            }
+            if (stop_requested()) {
+                return GenResult::Aborted;
+            }
+            const int64_t t_decode = llama_time_us();
+            {
+                std::lock_guard<std::mutex> lock(state.decode_mutex());
+                ActiveStopGuard active_stop(state, stop_flag.get());
+                if (is_text) {
+                    res = mtmd_helper_eval_chunk_single(mctx, ctx, chunk, n_past, seq_id,
+                        n_batch, is_last, &n_past);
+                } else {
+                    res = mtmd_helper_decode_image_chunk(mctx, ctx, chunk, mtmd_get_output_embd(mctx),
+                        n_past, seq_id, n_batch, &n_past, nullptr, nullptr);
+                }
+                if (res == 0 && is_last && is_text) {
+                    new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
+                }
+            }
+            decode_us += llama_time_us() - t_decode;
+            if (res != 0) {
+                return stop_requested() ? GenResult::Aborted : GenResult::Failed;
+            }
+        }
+        if (new_token_id == LLAMA_TOKEN_NULL) {
             return GenResult::Failed;
         }
+        fprintf(stderr, "[Harmony-GGUF] 多模态输入：%d tokens，准备 %.1f ms，视觉编码 %.1f ms，prefill（含等待） %.1f ms\n",
+            out_stats.prompt_tokens, (t_prepared - t_start) / 1000.0, encode_us / 1000.0, decode_us / 1000.0);
     } else {
         // === 纯文本：tokenize + 一次性 decode prompt（pos 0..n_prompt-1）===
         n_prompt = -llama_tokenize(vocab, params.prompt.c_str(), static_cast<int32_t>(params.prompt.size()),
                                    nullptr, 0, true, true);
         if (n_prompt <= 0) {
+            out_stats.error_message = "输入分词失败或输入为空";
             return GenResult::Failed;
         }
 
@@ -227,17 +285,42 @@ GenResult RunGeneration(
             return GenResult::Failed;
         }
 
-        if (slot_ctx > 0 && static_cast<uint32_t>(n_prompt) > slot_ctx) {
+        if (FitPromptContext(prompt_tokens, slot_ctx)) {
+            n_prompt = static_cast<int32_t>(prompt_tokens.size());
+            fprintf(stderr, "[Harmony-GGUF] 历史超过上下文，保留首 token 与最近 %d tokens\n", n_prompt - 1);
+        }
+        if (slot_ctx <= 1 || static_cast<uint32_t>(n_prompt) >= slot_ctx) {
+            out_stats.error_message = "加载上下文过小，无法为输入与生成提供空间";
             return GenResult::Failed;
         }
 
         out_stats.prompt_tokens = n_prompt;
+        int32_t reuse = 0;
+        {
+            std::lock_guard<std::mutex> lock(state.decode_mutex());
+            auto & cached = state.cached_tokens(seq_id);
+            if (cache_valid) {
+                reuse = static_cast<int32_t>(ReusablePromptTokens(cached, prompt_tokens));
+            }
+            if (mem != nullptr) {
+                if (reuse == 0 || !llama_memory_seq_rm(mem, seq_id, reuse, -1)) {
+                    reuse = 0;
+                    if (!llama_memory_seq_rm(mem, seq_id, -1, -1)) {
+                        cached.clear();
+                        return GenResult::Failed;
+                    }
+                }
+            }
+            cached.clear();
+        }
+        evaluated_tokens = prompt_tokens;
+        const int64_t t_prefill = llama_time_us();
 
         const int32_t n_batch = static_cast<int32_t>(llama_n_batch(ctx));
         if (n_batch <= 0) {
             return GenResult::Failed;
         }
-        for (int32_t offset = 0; offset < n_prompt;) {
+        for (int32_t offset = reuse; offset < n_prompt;) {
             if (stop_requested()) {
                 return GenResult::Aborted;
             }
@@ -261,10 +344,15 @@ GenResult RunGeneration(
                     }
                     return GenResult::Failed;
                 }
+                if (offset + count == n_prompt) {
+                    new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
+                }
             }
             offset += count;
         }
         n_past = n_prompt;
+        fprintf(stderr, "[Harmony-GGUF] 文本 prefill：总 %d tokens，复用 %d，计算 %d，耗时 %.1f ms\n",
+            n_prompt, reuse, n_prompt - reuse, (llama_time_us() - t_prefill) / 1000.0);
     }
 
     // 单 token batch：生成循环复用。prompt / 多模态 chunks decode 后已经产出首个 logits，
@@ -284,11 +372,6 @@ GenResult RunGeneration(
             break;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(state.decode_mutex());
-            ActiveStopGuard active_stop(state, stop_flag.get());
-            new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
-        }
         if (first_token) {
             t_first = llama_time_us();
             out_stats.ttft_ms = (t_first - t_start) / 1000.0;
@@ -317,6 +400,9 @@ GenResult RunGeneration(
         if (i + 1 >= params.max_tokens) {
             break;
         }
+        if (!can_shift && slot_ctx > 0 && n_past >= static_cast<llama_pos>(slot_ctx)) {
+            break;
+        }
 
         one.get().token[0] = new_token_id;
         one.get().pos[0] = n_past;
@@ -325,6 +411,9 @@ GenResult RunGeneration(
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             ActiveStopGuard active_stop(state, stop_flag.get());
             rc = llama_decode(ctx, one.get());
+            if (rc == 0) {
+                new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
+            }
         }
         if (rc != 0) {
             if (stop_requested()) {
@@ -334,6 +423,9 @@ GenResult RunGeneration(
             return GenResult::Failed;
         }
         n_past += 1;
+        if (cache_valid) {
+            evaluated_tokens.push_back(one.get().token[0]);
+        }
 
         // 接近槽位上下文上限时滑动窗口（context shift），避免长对话被截断。
         // 借鉴 llama-server：seq_rm 丢弃中间一段，seq_add 把后续 token 位置前移。
@@ -344,6 +436,7 @@ GenResult RunGeneration(
                 n_discard = n_left - 1;
             }
             if (n_discard > 0) {
+                cache_valid = false;
                 std::lock_guard<std::mutex> lock(state.decode_mutex());
                 llama_memory_seq_rm(mem, seq_id, 0, n_discard);
                 llama_memory_seq_add(mem, seq_id, n_discard, n_past, -n_discard);
@@ -354,6 +447,10 @@ GenResult RunGeneration(
     }
 
     const int64_t t_end = llama_time_us();
+    if (!stopped && cache_valid) {
+        std::lock_guard<std::mutex> lock(state.decode_mutex());
+        state.cached_tokens(seq_id) = std::move(evaluated_tokens);
+    }
     if (out_stats.generated_tokens > 0) {
         const double elapsed = static_cast<double>(t_end - t_start) / 1000000.0;
         out_stats.tokens_per_second = elapsed > 0.0 ? out_stats.generated_tokens / elapsed : 0.0;
@@ -379,11 +476,11 @@ bool RunGenerationAsync(
         } catch (...) {
             result = GenResult::Failed;
         }
+        EngineState::Instance().EndGenerate(request_id, seq_id);
         try {
             on_done(result, stats);
         } catch (...) {
         }
-        EngineState::Instance().EndGenerate(request_id, seq_id);
     };
 
     try {

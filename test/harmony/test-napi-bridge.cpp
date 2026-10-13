@@ -2,6 +2,7 @@
 #include "engine_state.h"
 #include "error_code.h"
 #include "llama_inference.h"
+#include "request_slot.h"
 
 #include <future>
 #include <thread>
@@ -100,6 +101,79 @@ int main(int argc, char ** argv) {
         t.assert_true("requestId 不复用", old_id != second.id);
         EngineState::Instance().RequestStop(old_id);
         t.assert_true("旧请求停止不影响新请求", !second.stop->load());
+    });
+
+    t.test("对话缓存归属与空闲回收", [&](testing & t) {
+        ModelFixture model;
+        if (!model.load(t, 2)) { return; }
+        auto & state = EngineState::Instance();
+        auto begin = [&](uint64_t conversation, llama_seq_id & seq) {
+            std::shared_ptr<std::atomic_bool> flag;
+            return state.BeginGenerate(SlotPool::Napi, seq, flag, conversation);
+        };
+        llama_seq_id a = -1, b = -1, again = -1, c = -1;
+        auto id_a = begin(101, a);
+        if (!t.assert_true("对话 A 开始", id_a != 0)) { return; }
+        auto duplicate = begin(101, again);
+        t.assert_equal("同一对话不能并行重入", uint64_t(0), duplicate);
+        auto id_b = begin(202, b);
+        if (!t.assert_true("对话 B 开始", id_b != 0)) { state.EndGenerate(id_a, a); return; }
+        t.assert_true("并行对话序列隔离", a != b);
+        state.EndGenerate(id_a, a);
+        auto id_again = begin(101, again);
+        t.assert_true("完成后可进入下一轮", id_again != 0);
+        t.assert_equal("下一轮保持 A 的缓存归属", a, again);
+        if (id_again != 0) { state.EndGenerate(id_again, again); }
+        auto id_c = begin(303, c);
+        t.assert_true("新对话回收空闲槽位", id_c != 0);
+        t.assert_equal("不能回收执行中的 B", a, c);
+        if (id_c != 0) { state.EndGenerate(id_c, c); }
+        state.EndGenerate(id_b, b);
+        state.DeleteConversation(202);
+        llama_seq_id d = -1;
+        auto id_d = begin(404, d);
+        t.assert_true("删除对话后槽位可复用", id_d != 0);
+        t.assert_equal("优先使用已删除对话槽位", b, d);
+        if (id_d != 0) { state.EndGenerate(id_d, d); }
+    });
+
+    t.test("请求启动提前退出不会泄漏槽位", [&](testing & t) {
+        ModelFixture model;
+        if (!model.load(t, 1)) { return; }
+        for (int round = 0; round < 10; ++round) {
+            RequestFixture request;
+            if (!request.begin(t)) { return; }
+            {
+                RequestSlotGuard guard(request.id, request.seq);
+            }
+            request.id = 0;
+        }
+        RequestFixture next;
+        t.assert_true("连续退出后仍能开始新对话", next.begin(t));
+    });
+
+    t.test("结束回调中可以立即开始下一轮", [&](testing & t) {
+        ModelFixture model;
+        if (!model.load(t, 1)) { return; }
+        RequestFixture first;
+        if (!first.begin(t)) { return; }
+        std::promise<bool> available;
+        auto future = available.get_future();
+        GenerateParams params;
+        params.prompt = "测试输入";
+        const bool started = inference::RunGenerationAsync(first.id, first.seq, first.stop, params,
+            [](const char *) {},
+            [&](inference::GenResult, const GenerateStats &) {
+                llama_seq_id seq = -1;
+                std::shared_ptr<std::atomic_bool> flag;
+                auto & state = EngineState::Instance();
+                const auto id = state.BeginGenerate(SlotPool::Napi, seq, flag);
+                if (id != 0) { state.EndGenerate(id, seq); }
+                available.set_value(id != 0);
+            }, []() { return false; });
+        if (!t.assert_true("异步线程启动", started)) { return; }
+        if (!t.assert_true("结束回调及时返回", future.wait_for(5s) == std::future_status::ready)) { return; }
+        t.assert_true("回调前已释放唯一槽位", future.get());
     });
 
     t.test("按请求停止不影响另一请求", [&](testing & t) {

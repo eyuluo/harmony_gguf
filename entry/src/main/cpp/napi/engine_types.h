@@ -44,6 +44,7 @@ struct GenerateStats {
     int32_t generated_tokens = 0;
     double ttft_ms = 0.0;
     double tokens_per_second = 0.0;
+    std::string error_message;
 };
 
 #endif // HARMONY_GGUF_ENGINE_TYPES_H

@@ -257,13 +257,13 @@ std::string BuildChatPrompt(const std::string & tmpl, const json & messages) {
     std::vector<char> buf(total);
     int32_t len = llama_chat_apply_template(tmpl.c_str(), msgs.data(), static_cast<size_t>(msgs.size()), true,
                                             buf.data(), static_cast<int32_t>(buf.size()));
-    if (len < 0) {
-        buf.resize(static_cast<size_t>(-len));
+    if (len > static_cast<int32_t>(buf.size())) {
+        buf.resize(static_cast<size_t>(len));
         len = llama_chat_apply_template(tmpl.c_str(), msgs.data(), static_cast<size_t>(msgs.size()), true,
                                         buf.data(), static_cast<int32_t>(buf.size()));
     }
 
-    if (len <= 0) {
+    if (len <= 0 || len > static_cast<int32_t>(buf.size())) {
         return "";
     }
     return std::string(buf.data(), static_cast<size_t>(len));

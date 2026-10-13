@@ -12,6 +12,7 @@ export interface InferenceSettings {
   topP: number;
   repeatPenalty: number;
   parallel: number;
+  imageMaxTokens: number;
 }
 
 // 默认值（与 C++ 侧 GenerateParams / LoadConfig 默认值一致）
@@ -23,7 +24,8 @@ const DEFAULT_SETTINGS: InferenceSettings = {
   topK: 40,
   topP: 0.95,
   repeatPenalty: 1.0,
-  parallel: 1
+  parallel: 1,
+  imageMaxTokens: 1024
 };
 
 const PREF_NAME = 'settings';
@@ -71,7 +73,8 @@ export class SettingsStore {
         topK: this.prefs.getSync('topK', DEFAULT_SETTINGS.topK) as number,
         topP: this.prefs.getSync('topP', DEFAULT_SETTINGS.topP) as number,
         repeatPenalty: this.prefs.getSync('repeatPenalty', DEFAULT_SETTINGS.repeatPenalty) as number,
-        parallel: this.prefs.getSync('parallel', DEFAULT_SETTINGS.parallel) as number
+        parallel: this.prefs.getSync('parallel', DEFAULT_SETTINGS.parallel) as number,
+        imageMaxTokens: this.prefs.getSync('imageMaxTokens', DEFAULT_SETTINGS.imageMaxTokens) as number
       };
     } catch (error) {
       hilog.error(DOMAIN, TAG, '读取设置失败: %{public}s', String(error));
@@ -93,6 +96,7 @@ export class SettingsStore {
       await this.prefs.put('topP', settings.topP);
       await this.prefs.put('repeatPenalty', settings.repeatPenalty);
       await this.prefs.put('parallel', settings.parallel);
+      await this.prefs.put('imageMaxTokens', settings.imageMaxTokens);
       await this.prefs.flush();
     } catch (error) {
       hilog.error(DOMAIN, TAG, '保存设置失败: %{public}s', String(error));
