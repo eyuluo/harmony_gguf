@@ -27,4 +27,17 @@ inline bool FitPromptContext(std::vector<llama_token> & prompt, uint32_t context
     return true;
 }
 
+inline int32_t GenerationWindowDiscard(llama_pos used, uint32_t capacity) {
+    if (capacity <= 1 || used < static_cast<llama_pos>(capacity)) {
+        return 0;
+    }
+    return std::max(1, used / 2);
+}
+
+inline void TrimGenerationWindow(std::vector<llama_token> & tokens, size_t discard) {
+    if (tokens.size() <= 1) { return; }
+    discard = std::min(discard, tokens.size() - 1);
+    tokens.erase(tokens.begin() + 1, tokens.begin() + 1 + discard);
+}
+
 #endif

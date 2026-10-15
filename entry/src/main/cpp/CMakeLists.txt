@@ -13,6 +13,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(GGML_VERSION "0.26.0")
+set(GGML_BUILD_COMMIT "unknown")
+configure_file(ggml/src/ggml-version.h.in ${CMAKE_CURRENT_BINARY_DIR}/ggml-version.h @ONLY)
+set(LLAMA_VERSION "0.6.0-dev")
+set(LLAMA_BUILD_COMMIT "unknown")
+configure_file(engine/llama-version.h.in ${CMAKE_CURRENT_BINARY_DIR}/llama-version.h @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 # ---- 源文件收集 ----
 
 # ggml 基础库（张量核心 + backend 抽象 + gguf）
@@ -23,7 +31,8 @@ file(GLOB GGML_SRC
 # ggml CPU 后端（根目录，不含 amx 等子目录，GLOB 非递归）
 file(GLOB GGML_CPU_SRC
     ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/*.c
-    ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/*.cpp)
+    ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/*.cpp
+    ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/tiled/*.cpp)
 
 # 架构 SIMD 源（真机 ARM / 模拟器 x86）
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64|armv8")
@@ -103,6 +112,9 @@ add_library(entry SHARED
 # sha1.cpp 使用 C++ namespace（vendor_hash），保留 .cpp 扩展名以 C++ 编译
 
 target_link_libraries(entry PUBLIC libace_napi.z.so)
+target_link_libraries(entry PRIVATE dl)
+target_compile_definitions(entry PRIVATE GGML_USE_HARMONY_NPU)
+target_include_directories(entry PRIVATE ${NATIVERENDER_ROOT_PATH}/common)
 
 target_compile_options(entry PRIVATE
     -fexceptions
@@ -115,6 +127,4 @@ target_compile_options(entry PRIVATE
 target_compile_definitions(entry PRIVATE
     _GNU_SOURCE
     GGML_USE_CPU
-    GGML_VERSION="0.3.0"
-    GGML_COMMIT="dev"
-    LLAMA_VERSION="0.3.0")
+    LLAMA_VERSION="0.6.0-dev")

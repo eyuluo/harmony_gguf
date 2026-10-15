@@ -1,5 +1,7 @@
 # Harmony-GGUF — NAPI 接口契约（API.md）
 
+> 状态同步：2026-10-15。进度与验证结论见 [STATUS.md](STATUS.md)；本文描述接口契约，设备验收尚未完成。
+
 > 版本：v0.2 · 本文件是 ArkTS ↔ C++（NAPI）的**接口契约**，是 A/B 角色联调的权威依据。
 > 对应类型声明：`entry/src/main/cpp/types/libentry/Index.d.ts`；实现：`entry/src/main/cpp/napi/`。
 
@@ -7,7 +9,7 @@
 
 - NAPI 模块名：`entry`，产物 `libentry.so`。ArkTS 侧 `import napi from 'libentry.so'`。
 - 生成接口为**异步流式**：推理在独立 pthread 执行，经 `napi_threadsafe_function` 逐 token 回调，不阻塞 UI。
-- **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型，但可同时处理多个生成任务（并发槽位数可配置，默认 2）。
+- **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型；NAPI 与 Serve 两池各 `parallel` 个槽位，默认各 1，总计 2。
 - 原生引擎由多个 NAPI 环境共享。taskpool 工作环境回收不停止全局推理或 Serve；仅最后一个原生模块环境退出时执行全局停止与等待，显式卸载模型仍按原有接口释放资源。
 
 ## 2. 数据结构
@@ -33,6 +35,7 @@
 | parallel | number? | 1 | 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个） |
 | mmprojPath | string? | 空 | mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态） |
 | imageMaxTokens | number? | 1024 | 每张图片视觉 token 上限，整数 0–4096；0 使用投影器默认值。仅对支持可变分辨率的投影器生效；降低可减少视觉编码与 prefill 开销，但可能损失小字和定位细节。修改后需重新加载模型。 |
+| useNpu | boolean? | true | 开启 CPU/NPU 混合计算。动态探测 NNRt 专用加速器，将可映射的连续子图交给设备；不支持、预算不足或失败时由 CPU 完成。修改后重新加载模型。 |
 
 ### 2.3 GenerateParams（生成参数）
 
@@ -134,7 +137,15 @@
 | loadModel | `(path: string, config?: LoadConfig) => number` | modelId | 加载模型并返回句柄（单模型实例，恒为 1）；每池最大并发槽位数按 `config.parallel` 配置（软上限，槽位按需分配） |
 | unloadModel | `(modelId: number) => void` | 无 | 卸载模型、释放资源（先停止所有进行中的生成） |
 
+应用通过 taskpool 执行加载与卸载。加载过程的模型、上下文、线程池和视觉投影器由资源守卫持有，初始化失败自动释放；分配异常返回 1006，标准初始化异常返回 1003。卸载等待活跃生成结束，清理 NPU 计划、视觉投影、上下文、线程池、权重和会话槽位缓存。应用在原生卸载成功后清除模型状态，失败保留句柄以便重试。上述行为已有本地生命周期回归，真实权重与设备内存仍待验证。
+
+Gemma4 使用独立的 `gemma4` 模板，识别模型元数据中的 `<|turn>` / `<turn|>` 标记，assistant 映射为 model，生成前缀为 `<|turn>model\n`。字符串消息中的历史思考通道按模型模板移除；图片占位符保留给 mtmd 处理。BOS 由分词阶段按模型配置添加。该接口的消息结构不包含工具调用对象，不提供 GGUF Jinja 中的结构化工具声明与调用渲染。
+
+UI 与 Serve 共用模板选择器：GGUF 内置模板优先；模板缺失时根据词表协议标记与明确架构默认推断。内置模板未识别时返回 1004，不以通用 ChatML 掩盖。Qwen3、Nemotron3、新版 GLM 思考模板和 MiniMax-M2 使用专用字符串消息渲染；支持范围与未验证项见 `docs/CHAT-TEMPLATES.md`。
+
 ### 4.2 推理
+
+`getAccelerationStatus(): AccelerationStatus` 返回 NPU 状态：`enabled` 为配置开关，`available` 为是否找到 NNRt 专用加速器，`device` 为设备名称，`lastError` 为最近探测或回退原因，`executions` 为采用 NPU 输出的子图次数（不包含首次对照中采用 CPU 输出的执行），`fallbacks` 为可映射子图回退次数，`cpuGraphs` 为没有适合卸载子图而直接执行 CPU 整图的次数，`lastNpuMs` / `lastCpuMs` 为最近一次子图收益测试耗时，`cachedBytes` 为缓存预算估算。`available` 不表示模型全部算子受支持。加载或卸载重置计数与缓存。状态查询仅读取最近完成计算图发布的快照，不等待 NPU 编译或执行锁。
 
 | 接口 | 签名 | 返回 | 说明 |
 |------|------|------|------|
@@ -152,9 +163,11 @@
 
 > 并发语义：每池最多同时有 `LoadConfig.parallel` 个任务在执行（软上限，槽位按需分配）；池满时抛错（错误码 1005）。
 > 应用排队使用已加载的 `LoadConfig.parallel`，不使用尚未生效的设置值。收到 1005 时，请求保留为排队状态，每 250 ms 检查空闲执行机会；直到获得槽位、用户停止或模型切换。排队不会重复添加用户消息。
-> 每个槽位独立维护 KV cache 序列与采样器；支持 KV 位移的模型达到槽位上下文软上限时自动滑动上下文窗口（context shift）。不支持位移的模型在容量用尽时结束生成。
+> 每个槽位独立维护 KV cache 序列与采样器；每次 decode 前检查窗口容量，支持 KV 位移时保留首位置并滑动最近内容。纯文本不支持部分 KV 删除时，清空当前序列并对保留的 token 重建窗口，然后继续生成，不因达到窗口长度而直接结束。
 
 `maxTokens` 仅限制输出 token 数，输入 token 数可以大于 `maxTokens`。纯文本输入达到每槽位上下文容量时，保留首 token 和最近的输入，使 prefill 后至少剩余一个生成位置；因此超长历史的较早内容不再进入本轮模型上下文，界面历史仍保留。支持 KV 位移的模型在输出期间继续滑动窗口。多模态输入需整体满足每槽位位置容量，超限返回 1004 并说明可降低图片 token 上限、减少图片或提高加载上下文。
+
+上下文长度控制本轮输入回灌与运行时保留窗口，不是单轮输出总长度上限。输出可以多次越过窗口长度，直到模型输出结束标记、达到 `maxTokens` 或用户停止；窗口外的旧内容不再供模型直接访问。重建窗口有额外 prefill 开销。多模态当前依赖安全 KV 位移，底层拒绝位移时返回明确错误，不能按普通文本 token 重建图像位置。
 
 缓存按 `conversationId` 归属，生成结束仅让出执行机会，不取消对话归属。同一对话优先获取自己的空闲缓存槽位；同一对话不能同时执行两个请求。缓存槽位数量为 NAPI 池的 parallel；缓存不足时回收最久未使用的空闲对话缓存，原对话消息仍保留，下次根据历史重建。不同对话不能复用彼此的 KV。纯文本仅在前缀一致且底层支持安全裁剪时增量 prefill，至少重算最后一个输入 token；停止、失败、多模态或发生窗口位移时清理本次缓存。删除对话清理其缓存归属，切换模型清除全部缓存。
 
@@ -166,4 +179,4 @@
 | stopServer | `() => void` | 无 | 停止服务器 |
 | getServerStatus | `() => ServerInfo` | 状态 | 获取服务器状态与访问地址 |
 
-Serve 路由：`GET /health`、`GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/completions`（支持 `stream: true` SSE）。请求经同一并发槽位池调度，超出槽位数时排队等待。
+Serve 路由：`GET /health`、`GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/completions`（支持 `stream: true` SSE）。请求经独立 Serve 槽位池调度，与 NAPI 共用单模型和统一 KV 缓冲；超出 Serve 槽位数时排队等待。Serve 不支持图片输入。

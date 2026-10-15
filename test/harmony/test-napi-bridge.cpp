@@ -7,6 +7,10 @@
 
 #include <future>
 #include <thread>
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#endif
 
 using namespace std::chrono_literals;
 
@@ -72,6 +76,33 @@ int main(int argc, char ** argv) {
         t.assert_equal("不存在文件返回 1003", error_code_value(ErrorCode::ModelLoadFailed),
             EngineState::Instance().LoadModel("models/M2-missing.gguf", LoadConfig{}));
         t.assert_true("失败后无模型", !EngineState::Instance().IsLoaded());
+    });
+
+    t.test("重复加载卸载后私有内存不持续累积", [&](testing & t) {
+        ModelFixture model;
+        auto & state = EngineState::Instance();
+        size_t baseline = 0;
+        for (int round = 0; round < 8; ++round) {
+            if (!model.load(t, 2)) { return; }
+            RequestFixture request;
+            request.id = state.BeginGenerate(SlotPool::Napi, request.seq, request.stop, 123);
+            if (!t.assert_true("缓存归属可分配", request.id > 0)) { return; }
+            state.cached_tokens(request.seq).resize(1024 * 1024, 1);
+            request.end();
+            state.UnloadModel();
+            t.assert_true("卸载后模型和上下文均已释放", !state.IsLoaded() && state.ctx() == nullptr);
+#ifdef _WIN32
+            PROCESS_MEMORY_COUNTERS_EX counters{};
+            counters.cb = sizeof(counters);
+            if (!t.assert_true("读取进程私有内存", GetProcessMemoryInfo(GetCurrentProcess(),
+                    reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&counters), sizeof(counters)) != 0)) { return; }
+            if (round == 2) { baseline = counters.PrivateUsage; }
+            if (round > 2) {
+                std::cout << "卸载轮次 " << round + 1 << "，私有内存 " << counters.PrivateUsage << std::endl;
+                t.assert_true("预热后私有内存增长小于 32 MiB", counters.PrivateUsage <= baseline + 32 * 1024 * 1024);
+            }
+#endif
+        }
     });
 
     t.test("默认双槽位与独立池上限", [&](testing & t) {

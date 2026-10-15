@@ -354,8 +354,8 @@ GenResult RunGeneration(
         n_past = n_prompt;
         fprintf(stderr, "[Harmony-GGUF] 文本 prefill：总 %d tokens，复用 %d，计算 %d，耗时 %.1f ms\n",
             n_prompt, reuse, n_prompt - reuse, (llama_time_us() - t_prefill) / 1000.0);
+        evaluated_tokens = std::move(prompt_tokens);
         if (cache_valid) {
-            evaluated_tokens = std::move(prompt_tokens);
             evaluated_tokens.reserve(evaluated_tokens.size() +
                 std::min(static_cast<size_t>(params.max_tokens), static_cast<size_t>(slot_ctx - n_prompt)));
         }
@@ -406,17 +406,55 @@ GenResult RunGeneration(
         if (i + 1 >= params.max_tokens) {
             break;
         }
-        if (!can_shift && slot_ctx > 0 && n_past >= static_cast<llama_pos>(slot_ctx)) {
-            break;
-        }
-
         one.get().token[0] = new_token_id;
-        one.get().pos[0] = n_past;
         int32_t rc = 0;
         const int64_t t_decode = llama_time_us();
         {
             std::lock_guard<std::mutex> lock(state.decode_mutex());
             ActiveStopGuard active_stop(state, stop_flag.get());
+            const int32_t discard = GenerationWindowDiscard(n_past, slot_ctx);
+            if (discard > 0) {
+                cache_valid = false;
+                state.cached_tokens(seq_id).clear();
+                const llama_pos keep = 1;
+                bool shifted = can_shift && mem != nullptr &&
+                    llama_memory_seq_rm(mem, seq_id, keep, keep + discard);
+                if (shifted) {
+                    llama_memory_seq_add(mem, seq_id, keep + discard, n_past, -discard);
+                    n_past -= discard;
+                    if (params.images.empty()) { TrimGenerationWindow(evaluated_tokens, discard); }
+                } else if (params.images.empty() && mem != nullptr) {
+                    if (!llama_memory_seq_rm(mem, seq_id, -1, -1)) {
+                        out_stats.error_message = "无法重建生成窗口：底层模型拒绝清理当前序列";
+                        return GenResult::Failed;
+                    }
+                    TrimGenerationWindow(evaluated_tokens, discard);
+                    const int32_t batch_size = static_cast<int32_t>(llama_n_batch(ctx));
+                    if (batch_size <= 0) { return GenResult::Failed; }
+                    BatchGuard rebuild(std::min(batch_size, static_cast<int32_t>(evaluated_tokens.size())));
+                    if (!rebuild.valid()) { return GenResult::Failed; }
+                    for (int32_t offset = 0; offset < static_cast<int32_t>(evaluated_tokens.size());) {
+                        if (stop_requested()) { return GenResult::Aborted; }
+                        const int32_t count = std::min(batch_size,
+                            static_cast<int32_t>(evaluated_tokens.size()) - offset);
+                        std::copy_n(evaluated_tokens.data() + offset, count, rebuild.get().token);
+                        FillBatchSeq(rebuild.get(), seq_id, count, offset, false);
+                        rc = llama_decode(ctx, rebuild.get());
+                        if (rc != 0) {
+                            out_stats.error_message = "重建生成窗口失败";
+                            return stop_requested() ? GenResult::Aborted : GenResult::Failed;
+                        }
+                        offset += count;
+                    }
+                    n_past = static_cast<llama_pos>(evaluated_tokens.size());
+                } else {
+                    out_stats.error_message = "当前多模态模型无法滑动 KV 窗口，请提高加载上下文长度";
+                    return GenResult::Failed;
+                }
+                fprintf(stderr, "[Harmony-GGUF] 生成窗口%s：丢弃 %d tokens，保留 %d，继续生成\n",
+                    shifted ? "位移" : "重建", discard, n_past);
+            }
+            one.get().pos[0] = n_past;
             rc = llama_decode(ctx, one.get());
             if (rc == 0) {
                 new_token_id = llama_sampler_sample(smpl.get(), ctx, -1);
@@ -432,26 +470,8 @@ GenResult RunGeneration(
             return GenResult::Failed;
         }
         n_past += 1;
-        if (cache_valid) {
+        if (params.images.empty()) {
             evaluated_tokens.push_back(one.get().token[0]);
-        }
-
-        // 接近槽位上下文上限时滑动窗口（context shift），避免长对话被截断。
-        // 借鉴 llama-server：seq_rm 丢弃中间一段，seq_add 把后续 token 位置前移。
-        if (can_shift && slot_ctx > 0 && static_cast<llama_pos>(n_past) + 1 >= static_cast<llama_pos>(slot_ctx)) {
-            const int n_left = static_cast<int>(n_past);
-            int n_discard = std::max(1, n_left / 2);
-            if (n_discard >= n_left) {
-                n_discard = n_left - 1;
-            }
-            if (n_discard > 0) {
-                cache_valid = false;
-                std::lock_guard<std::mutex> lock(state.decode_mutex());
-                llama_memory_seq_rm(mem, seq_id, 0, n_discard);
-                llama_memory_seq_add(mem, seq_id, n_discard, n_past, -n_discard);
-                n_past -= n_discard;
-                one.get().pos[0] = n_past;
-            }
         }
     }
 

@@ -13,6 +13,9 @@
 #include "gguf.h"
 #include "llama.h"
 #include "napi_util.h"
+#ifdef GGML_USE_HARMONY_NPU
+#include "harmony_npu.h"
+#endif
 
 // 读取 GGUF 元数据字符串（key -> value）
 static std::string read_meta_str(const llama_model * model, const char * key) {
@@ -309,17 +312,13 @@ static napi_value FormatChatPrompt(napi_env env, napi_callback_info info) {
         messages.push_back({ roles[i].c_str(), contents[i].c_str() });
     }
 
-    std::string tmpl = EngineState::Instance().ModelChatTemplate();
+    const std::string tmpl = EngineState::Instance().ResolvedChatTemplate();
     if (tmpl.empty()) {
-        static const std::unordered_map<std::string, const char *> templates = {
-            { "llama", "llama3" }, { "qwen2", "chatml" }, { "qwen2moe", "chatml" },
-            { "qwen3", "chatml" }, { "gemma", "gemma" }, { "gemma2", "gemma" },
-            { "mistral", "mistral-v7" }, { "deepseek", "deepseek3" },
-            { "deepseek2", "deepseek2" }, { "chatglm", "chatglm3" }, { "glm4", "chatglm4" }
-        };
-        const std::string architecture = EngineState::Instance().ModelMetaString("general.architecture");
-        auto it = templates.find(architecture);
-        tmpl = it == templates.end() ? "chatml" : it->second;
+        const std::string reason = "无法识别聊天模板：架构=" +
+            EngineState::Instance().ModelMetaString("general.architecture") +
+            "，请检查 GGUF 的 tokenizer.chat_template 与实际模型版本";
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), reason.c_str());
+        return nullptr;
     }
 
     size_t buffer_size = 2048;
@@ -335,7 +334,10 @@ static napi_value FormatChatPrompt(napi_env env, napi_callback_info info) {
                                                    buffer.data(), static_cast<int32_t>(buffer.size()));
     }
     if (result_length <= 0 || result_length > static_cast<int32_t>(buffer.size())) {
-        napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), "failed to format chat prompt");
+        const std::string reason = "无法格式化聊天输入：架构=" +
+            EngineState::Instance().ModelMetaString("general.architecture") +
+            "，模板未识别或输出长度异常，返回值=" + std::to_string(result_length);
+        napi_util::ThrowError(env, error_code_value(ErrorCode::InferenceFailed), reason.c_str());
         return nullptr;
     }
     return napi_util::NewString(env, std::string(buffer.data(), static_cast<size_t>(result_length)));
@@ -363,6 +365,7 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
         int32_t threads = 0;
         uint32_t parallel = config.parallel;
         int32_t image_max_tokens = config.image_max_tokens;
+        bool use_npu = config.use_npu;
         std::string mmproj_path;
         if ((napi_util::HasProperty(env, args[1], "contextLength") &&
              !napi_util::GetOptionalUint32(env, args[1], "contextLength", context_length)) ||
@@ -374,6 +377,8 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
              !napi_util::GetOptionalString(env, args[1], "mmprojPath", mmproj_path)) ||
             (napi_util::HasProperty(env, args[1], "imageMaxTokens") &&
              !napi_util::GetOptionalInt32(env, args[1], "imageMaxTokens", image_max_tokens)) ||
+            (napi_util::HasProperty(env, args[1], "useNpu") &&
+             !napi_util::GetBool(env, napi_util::GetProperty(env, args[1], "useNpu"), use_npu)) ||
             image_max_tokens < 0 || image_max_tokens > 4096 || threads < 0 || parallel == 0) {
             napi_util::ThrowError(env, error_code_value(ErrorCode::InvalidArgument), "invalid load config");
             return nullptr;
@@ -383,6 +388,7 @@ static napi_value LoadModel(napi_env env, napi_callback_info info) {
         config.parallel = parallel;
         config.mmproj_path = mmproj_path;
         config.image_max_tokens = image_max_tokens;
+        config.use_npu = use_npu;
     }
 
     int32_t code = EngineState::Instance().LoadModel(path, config);
@@ -416,6 +422,24 @@ static napi_value UnloadModel(napi_env env, napi_callback_info info) {
     return result;
 }
 
+static napi_value GetAccelerationStatus(napi_env env, napi_callback_info) {
+    napi_value result = napi_util::NewObject(env);
+#ifdef GGML_USE_HARMONY_NPU
+    const auto status = HarmonyNpuGetStatus();
+    napi_util::SetProperty(env, result, "enabled", napi_util::NewBool(env, status.enabled));
+    napi_util::SetProperty(env, result, "available", napi_util::NewBool(env, status.available));
+    napi_util::SetProperty(env, result, "device", napi_util::NewString(env, status.device));
+    napi_util::SetProperty(env, result, "lastError", napi_util::NewString(env, status.last_error));
+    napi_util::SetProperty(env, result, "executions", napi_util::NewDouble(env, static_cast<double>(status.executions)));
+    napi_util::SetProperty(env, result, "fallbacks", napi_util::NewDouble(env, static_cast<double>(status.fallbacks)));
+    napi_util::SetProperty(env, result, "cpuGraphs", napi_util::NewDouble(env, static_cast<double>(status.cpu_graphs)));
+    napi_util::SetProperty(env, result, "lastNpuMs", napi_util::NewDouble(env, status.last_npu_ms));
+    napi_util::SetProperty(env, result, "lastCpuMs", napi_util::NewDouble(env, status.last_cpu_ms));
+    napi_util::SetProperty(env, result, "cachedBytes", napi_util::NewDouble(env, static_cast<double>(status.cached_bytes)));
+#endif
+    return result;
+}
+
 // 导出模型管理相关接口
 void RegisterModelApi(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
@@ -424,6 +448,7 @@ void RegisterModelApi(napi_env env, napi_value exports) {
         { "formatChatPrompt", nullptr, FormatChatPrompt, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "loadModel", nullptr, LoadModel, nullptr, nullptr, nullptr, napi_default, nullptr },
         { "unloadModel", nullptr, UnloadModel, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "getAccelerationStatus", nullptr, GetAccelerationStatus, nullptr, nullptr, nullptr, napi_default, nullptr },
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 }

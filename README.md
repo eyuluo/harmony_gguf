@@ -1,6 +1,6 @@
 # Harmony-GGUF
 
-#项目开发中，大体上是完成了，alpha测试推理正常，准备收尾.ing
+主要功能已实现，当前处于回归与设备验收阶段。统一进度、验证结果及重复加载稳定性待办见 [docs/STATUS.md](docs/STATUS.md)。
 
 面向 HarmonyOS（NEXT / 原生 ArkTS）的本地 GGUF 大模型运行器。纯离线运行，数据不出设备，让鸿蒙设备像运行聊天应用一样在本机运行开源大模型。
 
@@ -58,3 +58,5 @@ hvigorw assembleHap --mode module -p product=default
 | [docs/mvp.md](docs/mvp.md)                 | 功能范围与优先级 |
 | [docs/TDD.md](docs/TDD.md)                 | 技术设计（架构、NAPI 接口、数据流、线程模型） |
 | [docs/RUN-AND-USE.md](docs/RUN-AND-USE.md) | UI 构建、模拟器运行、模型导入与常见问题 |
+| [docs/UPSTREAM-UPDATE.md](docs/UPSTREAM-UPDATE.md) | 上游源码更新、移植适配与验证记录 |
+| [docs/STATUS.md](docs/STATUS.md) | 当前实现进度、验证证据与待办 |

@@ -30,6 +30,7 @@ struct LoadConfig {
     uint32_t parallel = 1;       // 每池最大并发槽位数（软上限，槽位按需分配；NAPI 与 Serve 各 parallel 个）
     bool vocab_only = false;
     int32_t image_max_tokens = 1024;
+    bool use_npu = true;
     std::string mmproj_path;     // mmproj 视觉投影文件路径（空 = 纯文本，不启用多模态）
 };
 
@@ -51,6 +52,7 @@ public:
     bool IsLoaded() const;
     std::string ModelMetaString(const char * key) const;
     std::string ModelChatTemplate() const;
+    std::string ResolvedChatTemplate() const;
 
     llama_model * model() const {
         std::lock_guard<std::mutex> lock(mutex_);

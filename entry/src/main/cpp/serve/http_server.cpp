@@ -184,40 +184,13 @@ bool ParseStreamFlag(const json & body, bool & stream) {
     return true;
 }
 
-// 架构 → 聊天模板名映射（与 registry/models.json 的 chatTemplate 字段对齐）
-const char * ChatTemplateForArch(const std::string & arch) {
-    static const std::unordered_map<std::string, const char *> kArchTemplates = {
-        { "llama", "llama3" },
-        { "qwen2", "chatml" },
-        { "qwen2moe", "chatml" },
-        { "qwen3", "chatml" },
-        { "gemma", "gemma" },
-        { "gemma2", "gemma" },
-        { "mistral", "mistral-v7" },
-        { "deepseek", "deepseek3" },
-        { "deepseek2", "deepseek2" },
-        { "chatglm", "chatglm3" },
-        { "glm4", "chatglm4" },
-    };
-    auto it = kArchTemplates.find(arch);
-    return it != kArchTemplates.end() ? it->second : "chatml";
-}
-
-// 解析当前模型应使用的聊天模板：优先 GGUF 内置模板，其次按架构匹配，最终回退 chatml
 std::string ResolveChatTemplate() {
-    const std::string builtin = EngineState::Instance().ModelChatTemplate();
-    if (!builtin.empty()) {
-        return builtin;
-    }
-    const std::string arch = EngineState::Instance().ModelMetaString("general.architecture");
-    if (!arch.empty()) {
-        return ChatTemplateForArch(arch);
-    }
-    return "chatml";
+    return EngineState::Instance().ResolvedChatTemplate();
 }
 
 // 用指定聊天模板把 messages 组装为 prompt
 std::string BuildChatPrompt(const std::string & tmpl, const json & messages) {
+    if (tmpl.empty()) { return ""; }
     std::vector<std::string> roles;
     std::vector<std::string> contents;
 
@@ -651,7 +624,14 @@ int32_t HttpServer::Start(const ServerConfig & config) {
         std::string prompt;
         try {
             if (body.contains("messages") && body["messages"].is_array()) {
-                prompt = BuildChatPrompt(ResolveChatTemplate(), body["messages"]);
+                const auto tmpl = ResolveChatTemplate();
+                if (tmpl.empty() && EngineState::Instance().IsLoaded()) {
+                    res.status = 400;
+                    res.set_content(json({{"error", {{"message", "无法识别模型聊天模板，请检查 GGUF 模板与模型版本"},
+                        {"type", "invalid_request_error"}, {"code", 1004}}}}).dump(), "application/json");
+                    return;
+                }
+                prompt = BuildChatPrompt(tmpl, body["messages"]);
             } else if (body.contains("prompt") && body["prompt"].is_string()) {
                 prompt = body["prompt"].get<std::string>();
             }

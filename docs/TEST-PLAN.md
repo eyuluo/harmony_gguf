@@ -1,5 +1,13 @@
 ﻿# Harmony-GGUF — 测试计划
 
+> 状态同步：2026-10-15。统一进度见 [STATUS.md](STATUS.md)。勾选只对应条目明确写出的范围；历史报告与当前快照结果分别记录。
+
+## 当前验证摘要
+
+本轮双 ABI Release 独立构建、HAP 离线构建与签名通过；Windows CTest 12/12 组通过，共 740 个断言，用时 26.89 秒。原生生命周期组为 16 个用例、137 个断言，包含新增 8 轮词表模型加载、缓存分配与卸载。用例内仍有 4 项真实权重相关跳过。
+
+设备 NAPI、真实权重、多模态、NNRt 与 Serve 网络回归本轮未执行，独立 CodeLinter 工具缺失。当前最高优先级为用户报告的 CPU/NPU 多次加载后卡住、闪退；本地私有内存稳定不构成设备泄漏已解决的证据。
+
 ## 1. 测试策略总览
 
 采用**双轨测试**体系，覆盖 ArkTS 应用层与 C++ 引擎层：
@@ -30,22 +38,22 @@
 - [x] 确认 hypium 框架可用（`oh-package.json5` 已声明 `@ohos/hypium` 1.0.25）
 - [x] 搭建 CI 流水线（`.gitlab-ci.yml` + `scripts/ci-*.sh`）
 - [x] 准备测试模型集清单（`test/models/MANIFEST.md`）
-- [x] 编写模型获取脚本（`scripts/fetch-test-models.sh`）
+- [x] 编写模型准备脚本（当前为 `scripts/fetch-test-models.ps1`，由用户手动执行）
 
 ### 阶段 1 — 引擎移植（Day 3–12）
 - [x] ggml 基础算子单测（与 CPU 参考实现比对数值）
 - [x] GGUF 解析单测（校验元数据字段）
-- [x] llama/qwen2 加载冒烟测试
+- [x] llama/qwen2 词表模型加载冒烟测试；真实权重覆盖见设备历史报告与待办
 - [x] tokenizer 编码/解码往返测试（token→id→token 一致性）
-- [x] 生成循环内存检查（KV Cache 复用、无泄漏）
+- [x] 词表模型加载卸载与缓存生命周期本地回归；真实推理 KV/设备泄漏验证尚未完成
 - [x] 定义性能基线指标（首字延迟 < 5s、tokens/s 目标值）
 
 ### 阶段 2 — NAPI 桥接（Day 13–18）
-- [x] 完成 M2 测试编写：11 个 C++ 用例及设备侧 NAPI/架构用例；运行与证据统一记录于 `reports/test-report-M2.md`
+- [x] 原生生命周期回归当前 16 个用例、137 个断言通过；2026-09-17 设备记录摘要见第 10 节
 - [x] C++ 测试接入 CTest 超时与 CI；真实 NAPI 测试迁移至 ohosTest，移除空 Native mock 映射
 - [x] 设备测试 HAP 编译、模拟器安装与沙箱模型部署流程验证
 - [x] 无模型 NAPI 契约 7 项及 vocab-only 边界通过
-- [x] Qwen2 真实模型独立冒烟通过（1/1，39.723 秒）
+- [x] Qwen2 真实模型独立冒烟历史通过（2026-09-17，1/1，39.723 秒）；更新快照后待重跑
 - [ ] NAPI 接口集成测试（parseGgufMetadata / loadModel / unloadModel）完整隔离回归
 - [ ] 流式回调稳定性测试（onToken / onDone / onError）完整隔离回归
 - [ ] 停止生成按 requestId 验证（stopGenerate / stopAllGenerations）完整隔离回归
@@ -60,6 +68,7 @@
 ### 阶段 4 — 完善（Day 24–28）
 - [ ] 性能基线测试（首字延迟、tokens/s 实测记录）
 - [ ] 崩溃/内存监控（长对话 20 轮压力测试）
+- [ ] 复现 CPU/NPU 多次加载后卡住、闪退；采集加载前、推理后、卸载后的内存、线程和崩溃记录
 - [ ] 参数生效验证（temperature / context length 调整后效果变化）
 - [ ] MVP 验收标准 1–5 项验证
 
@@ -98,11 +107,11 @@
 - `ci-build.sh` — 构建 HAP
 - `ci-test.sh` — ArkTS 单元测试
 - `ci-cpp-test.sh` — C++ 引擎测试（阶段 1 启用）
-- `fetch-test-models.sh` — 获取测试模型集
+- `fetch-test-models.ps1` — 模型准备脚本；由用户手动执行，代理不得下载或安装
 
 ## 6. 测试模型集
 
-详见 `test/models/MANIFEST.md`。覆盖 6 大架构的 Q4 小型模型，用于冒烟、集成与性能测试。
+详见 `test/models/MANIFEST.md`，其中列出计划模型，不代表权重全部已就绪。本轮本地 inference 目录仅有占位文件，使用已有词表 GGUF 执行回归。
 
 ## 7. 崩溃与内存监控策略
 
@@ -129,6 +138,8 @@
 
 ## 9. 阶段 1 (M1) C++ 引擎测试执行报告
 
+本节为 2026-09-04 历史记录。命令、环境与缺陷描述仅反映当时状态；本轮结果见文首及第 10 节。旧测试名称“无泄漏”只表示执行完成，未测量真实权重或设备泄漏。
+
 > 日期：2026-09-04 · 角色 C（质量保障）· 里程碑 M1
 > 环境：Windows 11 + MSVC 19.44 + CMake 3.31.6
 > 测试框架：`test/testing.h`
@@ -151,8 +162,8 @@
 
 | 测试 | 跳过原因 | 获取方式 |
 |------|----------|----------|
-| tinyllama 推理冒烟 | 需要 Q4 量化模型 | `bash scripts/fetch-test-models.sh llama` |
-| qwen2 推理冒烟 | 需要 Q4 量化模型 | `bash scripts/fetch-test-models.sh qwen2` |
+| tinyllama 推理冒烟 | 需要 Q4 量化模型 | 用户手动按 test/models/MANIFEST.md 准备 |
+| qwen2 推理冒烟 | 需要 Q4 量化模型 | 用户手动按 test/models/MANIFEST.md 准备 |
 | KV Cache 多轮 decode 递增 | 需要 Q4 量化模型 | 同上 |
 | KV Cache 清除后归零 | 需要 Q4 量化模型 | 同上 |
 
@@ -253,34 +264,34 @@ cmake --build build --target test-ggml-ops --config Debug
 
 ### 9.7 后续待办
 
-- [ ] 获取 Q4 量化推理模型（`bash scripts/fetch-test-models.sh`），补齐 4 个 SKIP 项
+- [ ] 用户手动准备 Q4 量化推理模型，补齐本地 4 个 SKIP 项
 - [ ] 推理冒烟通过后，记录首字延迟 (TTFT) 与 tokens/s 性能基线数据
 - [ ] KV Cache 测试通过后，确认无内存泄漏
-- [ ] 模拟器/真机 `mul_mat` SIGSEGV 问题定位（见 `error.txt`，需 A 配合修复）
+- [ ] 历史 `mul_mat` SIGSEGV 在当前版本的设备复测；原始记录未附有效当前日志，不能与本轮 MinGW 栈对齐问题混为一谈
 
 ## 10. 阶段 2（M2）当前记录
 
-> 更新日期：2026-09-17
+> 更新日期：2026-10-15；2026-09-17 设备报告作为历史证据保留。
 >
 > 阶段状态：**进行中，尚未完成验收**
 >
-> 详细报告：`reports/test-report-M2.md`
+> 原详细报告位于 `reports/test-report-M2.md`，当前工作区已删除；以下保留历史摘要，不作为本轮设备验证。
 
-当前测试已进行到 **Qwen2 真实模型链路打通、准备执行 NAPI 桥接分组回归**。本轮已按用户要求停止测试，SmolLM2 独立冒烟和依赖它的模型切换用例延后。
+当前已完成更新快照的双 ABI Release 构建、HAP 构建和本地全量 CTest；设备 NAPI 分组回归仍未完成。历史 Qwen2 冒烟不自动继承为当前快照通过结果，SmolLM2 与模型切换的历史延后状态也不代表已完成。
 
 | 范围 | 当前状态 | 结果 |
 |---|---|---|
-| C++ EngineState | 完成 | 11 用例、59 断言，全部通过；`m2-napi-bridge` 用时 68.83 秒 |
-| Native ABI | 完成 | arm64-v8a、x86_64 编译链接通过 |
-| 模拟器环境 | 完成 | HarmonyOS 6.1.0.126、API 24、x86_64；主 HAP 与 ohosTest HAP 已安装 |
-| 无模型契约 | 完成 | 7 项全部通过 |
-| vocab-only 边界 | 完成 | 解析通过，推理加载按预期拒绝 |
-| Qwen2 冒烟 | 完成 | 1/1 通过，用时 39.723 秒 |
+| C++ EngineState | 本轮通过 | 16 用例、137 断言；本轮 m2-napi-bridge 15.57 秒 |
+| Native ABI | 本轮通过 | 独立干净目录 Release arm64-v8a、x86_64 编译链接通过 |
+| 模拟器环境 | 历史记录 | 2026-09-17：HarmonyOS 6.1.0.126、API 24、x86_64，已部署；本轮未部署 |
+| 无模型契约 | 历史通过 | 2026-09-17 的 7 项通过；当前快照待重跑 |
+| vocab-only 边界 | 本地通过/设备待回归 | 本地词表解析、加载通过；设备拒绝推理加载为历史证据 |
+| Qwen2 冒烟 | 历史通过 | 2026-09-17：1/1，39.723 秒；本轮未执行真实权重推理 |
 | NAPI 桥接回归 | 进行中 | 部分场景仅在受超时污染的整轮运行中观察通过，需拆分后重跑 |
 | SmolLM2 / llama | 延后 | `contextLength` 解析为 0；当前不继续独立冒烟 |
 | 模型切换 | 延后 | 现有场景依赖 SmolLM2 |
 | 其他架构 | 未开始 | 缺少 Gemma2、Mistral、DeepSeek、ChatGLM 权重文件 |
 
-已确认一项正式缺陷：同步 `loadModel` 在模拟器主线程加载 Qwen2 时触发 `THREAD_BLOCK_6S`。调用栈落在 `llama_model_load_from_file` 与 `EngineState::LoadModel`，当时内存充足，没有 OOM 证据。
+历史缺陷为同步 `loadModel` 在模拟器主线程加载 Qwen2 时触发 `THREAD_BLOCK_6S`。当前应用已通过 taskpool 执行加载与卸载，仍需设备确认；直接 NAPI 调用仍是同步接口。当前另有用户报告的重复加载卡住、闪退，尚无充分证据确认泄漏或其他根因。
 
-恢复测试后的顺序：重新构建当前 Qwen2 主夹具测试包；分组执行桥接用例；补齐流式、并发、停止和卸载恢复的隔离证据；待用户恢复后再执行 SmolLM2 与模型切换；最后逐个准备和验证其余架构。M2 全部必需项完成且主线程阻塞缺陷得到处理前，不进入“验收通过”状态。
+后续顺序：优先复现重复加载闪退并采集内存证据；使用用户准备的权重执行流式、并发、停止、卸载恢复和模型切换的隔离回归；再补齐各架构、视觉、NNRt 与 Serve。M2 必需设备项未完成前保持“待验收”。详细同步范围与构建修复见 [UPSTREAM-UPDATE.md](UPSTREAM-UPDATE.md)。

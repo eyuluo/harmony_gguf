@@ -60,6 +60,11 @@ enum llm_chat_template {
     LLM_CHAT_TEMPLATE_GROK_2,
     LLM_CHAT_TEMPLATE_PANGU_EMBED,
     LLM_CHAT_TEMPLATE_SOLAR_OPEN,
+    LLM_CHAT_TEMPLATE_GEMMA_4,
+    LLM_CHAT_TEMPLATE_MINIMAX_M2,
+    LLM_CHAT_TEMPLATE_NEMOTRON_3,
+    LLM_CHAT_TEMPLATE_GLM_4_THINK,
+    LLM_CHAT_TEMPLATE_QWEN_3,
     LLM_CHAT_TEMPLATE_UNKNOWN,
 };
 
@@ -68,6 +73,9 @@ struct llama_chat_message;
 llm_chat_template llm_chat_template_from_str(const std::string & name);
 
 llm_chat_template llm_chat_detect_template(const std::string & tmpl);
+
+std::string llm_chat_resolve_template(const std::string & builtin, const std::string & architecture,
+    const std::vector<std::string> & tokens);
 
 int32_t llm_chat_apply_template(
     llm_chat_template tmpl,

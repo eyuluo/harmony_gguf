@@ -1,2 +1,0 @@
-> hvigor WARN: If obfuscation is needed, enable obfuscation settings in this build process; failing to do so may prevent future obfuscation. 
-               Properly configure obfuscation rules to avoid runtime issues.

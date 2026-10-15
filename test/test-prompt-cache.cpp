@@ -4,6 +4,26 @@
 
 int main() {
     testing t;
+    t.test("输出超过窗口后多次腾出空间继续解码", [](testing & t) {
+        std::vector<llama_token> tokens{1, 2, 3, 4, 5, 6, 7};
+        int shifts = 0;
+        for (int output = 0; output < 100; ++output) {
+            const auto discard = GenerationWindowDiscard(static_cast<llama_pos>(tokens.size()), 8);
+            if (discard > 0) {
+                TrimGenerationWindow(tokens, discard);
+                ++shifts;
+            }
+            t.assert_true("每次 decode 前都有空闲位置", tokens.size() < 8);
+            t.assert_equal("保留起始 token", llama_token(1), tokens.front());
+            tokens.push_back(100 + output);
+        }
+        t.assert_true("输出远超输入窗口仍继续", shifts > 10);
+        t.assert_equal("保留最新生成内容", llama_token(199), tokens.back());
+        t.assert_equal("窗口未满不提前位移", int32_t(0), GenerationWindowDiscard(7, 8));
+        std::vector<llama_token> tiny{1, 2};
+        TrimGenerationWindow(tiny, GenerationWindowDiscard(2, 2));
+        t.assert_equal("最小窗口仍保留起始 token", size_t(1), tiny.size());
+    });
     t.test("对话保留上下文并切换执行队列", [](testing & t) {
         std::vector<bool> busy{false, false, false, false};
         std::vector<uint64_t> owners{101, 202, 0, 0};

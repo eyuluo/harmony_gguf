@@ -13,6 +13,7 @@ export interface InferenceSettings {
   repeatPenalty: number;
   parallel: number;
   imageMaxTokens: number;
+  useNpu: boolean;
 }
 
 // 默认值（与 C++ 侧 GenerateParams / LoadConfig 默认值一致）
@@ -25,7 +26,8 @@ const DEFAULT_SETTINGS: InferenceSettings = {
   topP: 0.95,
   repeatPenalty: 1.0,
   parallel: 1,
-  imageMaxTokens: 1024
+  imageMaxTokens: 1024,
+  useNpu: true
 };
 
 const PREF_NAME = 'settings';
@@ -74,7 +76,8 @@ export class SettingsStore {
         topP: this.prefs.getSync('topP', DEFAULT_SETTINGS.topP) as number,
         repeatPenalty: this.prefs.getSync('repeatPenalty', DEFAULT_SETTINGS.repeatPenalty) as number,
         parallel: this.prefs.getSync('parallel', DEFAULT_SETTINGS.parallel) as number,
-        imageMaxTokens: this.prefs.getSync('imageMaxTokens', DEFAULT_SETTINGS.imageMaxTokens) as number
+        imageMaxTokens: this.prefs.getSync('imageMaxTokens', DEFAULT_SETTINGS.imageMaxTokens) as number,
+        useNpu: this.prefs.getSync('useNpu', DEFAULT_SETTINGS.useNpu) as boolean
       };
     } catch (error) {
       hilog.error(DOMAIN, TAG, '读取设置失败: %{public}s', String(error));
@@ -97,6 +100,7 @@ export class SettingsStore {
       await this.prefs.put('repeatPenalty', settings.repeatPenalty);
       await this.prefs.put('parallel', settings.parallel);
       await this.prefs.put('imageMaxTokens', settings.imageMaxTokens);
+      await this.prefs.put('useNpu', settings.useNpu);
       await this.prefs.flush();
     } catch (error) {
       hilog.error(DOMAIN, TAG, '保存设置失败: %{public}s', String(error));

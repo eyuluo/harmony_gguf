@@ -22,6 +22,20 @@ export struct HeaderBar {
           .fontSize(11)
           .fontColor('#5F6068')
           .margin({ left: 32, top: 3 })
+        if (this.appState.modelId > 0 && this.appState.accelerationSummary.length > 0) {
+          Text(this.appState.accelerationSummary)
+            .fontSize(11)
+            .fontColor('#B9B1FF')
+            .margin({ left: 32, top: 3 })
+            .onClick(() => {
+              this.getUIContext().showAlertDialog({
+                title: '实际计算设备',
+                message: this.appState.accelerationSummary + '\n' + this.appState.accelerationDetail +
+                  '\n统计自本次加载起累计，对话结束后更新。NPU 主要尝试长输入处理，单 token 输出使用 CPU。',
+                confirm: { value: '知道了', action: () => {} }
+              });
+            })
+        }
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)

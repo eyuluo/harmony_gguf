@@ -115,11 +115,13 @@ export class InferenceService {
     state.loadFailed = false;
     try {
       const modelId = await taskpool.execute(loadModelTask, model.path, config.contextLength ?? 0,
-        config.threads ?? 0, config.parallel ?? 1, config.mmprojPath ?? '', config.imageMaxTokens ?? 1024) as number;
+        config.threads ?? 0, config.parallel ?? 1, config.mmprojPath ?? '', config.imageMaxTokens ?? 1024,
+        config.useNpu ?? true) as number;
       state.modelId = modelId;
       state.modelInfo = model;
       state.activeModelPath = model.path;
       state.loadedConfig = config;
+      this.refreshAccelerationStatus();
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'load model failed: %{public}s', String(error));
       state.modelId = 0;
@@ -127,6 +129,8 @@ export class InferenceService {
       state.activeModelPath = '';
       state.loadedConfig = null;
       state.loadFailed = true;
+      state.accelerationSummary = '';
+      state.accelerationDetail = '';
     } finally {
       state.loading = false;
       state.loadingModelPath = '';
@@ -135,25 +139,28 @@ export class InferenceService {
 
   unload(): void {
     const state = this.state!;
-    if (state.modelId <= 0) {
+    if (state.loading || state.modelId <= 0) {
       return;
     }
     const modelId = state.modelId;
     state.loading = true;
     this.cancelQueuedGenerations();
     state.loadingModelPath = state.activeModelPath;
-    taskpool.execute(unloadModelTask, modelId).catch((error: Error) => {
+    taskpool.execute(unloadModelTask, modelId).then(() => {
+      state.modelId = 0;
+      state.modelInfo = null;
+      state.activeModelPath = '';
+      state.loadedConfig = null;
+      state.serverRunning = false;
+      state.serverInfo = '服务未启动';
+      state.accelerationSummary = '';
+      state.accelerationDetail = '';
+    }).catch((error: Error) => {
       hilog.error(DOMAIN, TAG, 'unload model failed: %{public}s', String(error));
     }).finally(() => {
       state.loading = false;
       state.loadingModelPath = '';
     });
-    state.modelId = 0;
-    state.modelInfo = null;
-    state.activeModelPath = '';
-    state.loadedConfig = null;
-    state.serverRunning = false;
-    state.serverInfo = '服务未启动';
   }
 
   newSession(): number {
@@ -445,7 +452,43 @@ export class InferenceService {
     }
     this.replaceSession(updated, event !== 'token');
     if (event === 'done' || event === 'stopped' || event === 'error') {
+      if (this.runningCount() === 0) {
+        this.refreshAccelerationStatus();
+      }
       this.dequeueNext();
+    }
+  }
+
+  private refreshAccelerationStatus(): void {
+    const state = this.state!;
+    try {
+      const status = testNapi.getAccelerationStatus();
+      if (!status.enabled) {
+        state.accelerationSummary = 'CPU 推理';
+        state.accelerationDetail = '';
+        return;
+      }
+      if (!status.available) {
+        state.accelerationSummary = 'CPU 推理 · NPU 不可用';
+        state.accelerationDetail = status.lastError;
+        return;
+      }
+      state.accelerationSummary = status.executions > 0 ?
+        `CPU + NPU · NPU 执行 ${status.executions} 次` : 'CPU 推理 · 尚无 NPU 加速执行';
+      let detail = `${status.device} · 回退 ${status.fallbacks} 次 · CPU 整图 ${status.cpuGraphs} 次`;
+      if (status.lastCpuMs > 0) {
+        detail += `\n最近子图对照：NPU ${status.lastNpuMs.toFixed(1)} ms / CPU ${status.lastCpuMs.toFixed(1)} ms`;
+      }
+      if (status.lastError.length > 0) {
+        detail += '\n' + status.lastError;
+      } else if (status.executions === 0 && status.cpuGraphs > 0) {
+        detail += '\n当前输入规模或权重布局未满足 NPU 卸载条件';
+      }
+      state.accelerationDetail = detail;
+    } catch (error) {
+      hilog.warn(DOMAIN, TAG, '读取加速状态失败：%{public}s', String(error));
+      state.accelerationSummary = '加速状态读取失败';
+      state.accelerationDetail = '';
     }
   }
 
@@ -545,7 +588,8 @@ export class InferenceService {
       (previous.threads ?? 0) === (next.threads ?? 0) &&
       (previous.parallel ?? 1) === (next.parallel ?? 1) &&
       (previous.mmprojPath ?? '') === (next.mmprojPath ?? '') &&
-      (previous.imageMaxTokens ?? 1024) === (next.imageMaxTokens ?? 1024);
+      (previous.imageMaxTokens ?? 1024) === (next.imageMaxTokens ?? 1024) &&
+      (previous.useNpu ?? true) === (next.useNpu ?? true);
   }
 
   private runningCount(): number {

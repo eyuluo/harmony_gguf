@@ -1,5 +1,7 @@
 # Harmony-GGUF 运行工具 — MVP 功能规划
 
+> 状态同步：2026-10-15。统一进度见 [STATUS.md](STATUS.md)。本文保留功能优先级，勾选仅表示对应实现已存在，不表示已完成设备验收；混合或未验证能力保持未勾选并说明。
+
 > 目标：在 HarmonyOS（NEXT / 原生 ArkTS）上运行本地 GGUF 大模型，实现离线推理与对话。
 
 ## 一、项目定位
@@ -17,67 +19,70 @@
 | 桥接层 | NAPI | ArkTS 与 C++ 推理引擎通信（同步/异步、流式回调） |
 | 推理层 | C/C++（移植 llama.cpp） | GGUF 解析、tokenizer、采样、生成 |
 | 服务层 | C/C++ HTTP Server（cpp-httplib） | OpenAI 兼容 API、SSE 流式、局域网访问 |
-| 加速 | CPU 优先，后续 NPU（NNR / HiAI） | MVP 阶段先跑通 CPU 推理 |
+| 加速 | CPU 基线 + NNRt 混合执行 | NPU 代码已接入，真机收益待验证 |
 
 ## 三、核心功能清单
 
 ### 1. 模型管理（P0）
-- [ ] GGUF 模型导入（从沙箱文件、系统文件选择器、局域网/URL 下载）
-- [ ] 模型列表展示（名称、参数量、量化等级、文件大小）
-- [ ] GGUF 元数据解析与展示（架构、tokenizer 类型、上下文长度等）
-- [ ] 模型删除 / 存储占用管理
+- [x] 系统文件选择器导入 GGUF 并复制到沙箱
+- [x] 模型列表展示（名称、参数量、量化等级、文件大小）
+- [x] GGUF 元数据解析与展示（架构、tokenizer 类型、上下文长度等）
+- [x] 模型删除 / 存储占用管理
+- [ ] 局域网/URL 下载导入（扩展目标，未纳入本轮验证）
 
 ### 2. 推理引擎（P0）
-- [ ] GGUF 文件加载与校验
-- [ ] tokenizer 加载（BPE / SentencePiece 等）
-- [ ] 前向推理 + KV Cache 管理
-- [ ] 采样策略：temperature、top-k、top-p、repetition penalty
-- [ ] 流式 token 输出（NAPI 回调到 ArkTS）
+- [x] GGUF 文件加载与校验
+- [x] tokenizer 加载（BPE / SentencePiece 等）
+- [x] 前向推理 + KV Cache 管理
+- [x] 采样策略：temperature、top-k、top-p、repetition penalty
+- [x] 流式 token 输出（NAPI 回调到 ArkTS）
 
 ### 3. 对话界面（P0）
-- [ ] 多轮对话（维护历史上下文）
-- [ ] 流式打字机效果展示
-- [ ] 新建/切换会话、清空上下文
-- [ ] 复制 / 重新生成 / 停止生成
+- [x] 多轮对话（维护历史上下文）
+- [x] 流式打字机效果展示
+- [x] 新建/切换/删除会话
+- [x] 停止生成
+- [ ] 清空上下文、复制与重新生成入口及交互验收
 
 ### 4. 推理参数配置（P0）
-- [ ] 上下文长度（context length）
-- [ ] 最大生成长度（max tokens）
-- [ ] 采样参数（temperature、top-k、top-p、repeat penalty）
-- [ ] 线程数 / CPU 核心数设置
+- [x] 上下文长度（context length）
+- [x] 最大生成长度（max tokens）
+- [x] 采样参数（temperature、top-k、top-p、repeat penalty）
+- [x] 线程数设置（不等同于用户指定 CPU 核心亲和性）
 
 ### 5. 本地 API 服务（Serve）（P1）
 - [ ] 独立启动模式：无需进入对话界面，一键启动 Serve 作为常驻服务
 - [ ] 与对话推理解耦、独立生命周期，支持后台保持（长时任务 / 屏幕常亮）
-- [ ] 启动 / 停止本地 HTTP 服务器（localhost，可选局域网监听）
-- [ ] OpenAI 兼容接口：`POST /v1/chat/completions`、`POST /v1/completions`、`GET /v1/models`
-- [ ] 流式响应（SSE / Server-Sent Events）
-- [ ] 健康检查接口 `GET /health`
+- [x] 原生启动 / 停止 HTTP 服务器；应用默认 localhost，原生接口可配置局域网监听
+- [x] OpenAI 兼容接口：`POST /v1/chat/completions`、`POST /v1/completions`、`GET /v1/models`
+- [x] 流式响应（SSE / Server-Sent Events）
+- [x] 健康检查接口 `GET /health`
 - [ ] 端口与监听地址配置、访问地址展示（含局域网 IP / 二维码）
-- [ ] 单模型多槽位并发调度、鉴权（可选 API Key）
+- [x] 原生单模型多槽位并发调度、鉴权（可选 API Key）；设备网络验收待完成
 
 ### 6. 内置模型注册表（P1）
-- [ ] 内置主流开源模型清单（llama / qwen / gemma / mistral / deepseek / chatglm 等）
-- [ ] 每个条目：模型 id、架构、聊天模板（chat template）、推荐量化、默认采样参数
-- [ ] 导入 / 下载模型时按架构自动匹配注册表，应用默认配置
+- [x] 内置模型 JSON 资源及条目结构（resources/rawfile/models.json）
+- [ ] 导入时默认参数完整应用及用户覆盖验收；当前聊天模板由原生统一选择器处理
 - [ ] 注册表版本化，支持用户自定义 / 扩展条目
 
 ### 7. 会话与历史（P1）
-- [ ] 会话持久化（本地存储，SQLite / Preferences）
-- [ ] 会话列表与历史记录
+- [x] 会话持久化（本地 RDB）
+- [x] 会话列表与历史记录
 - [ ] 导出 / 分享对话记录
 
 ### 8. 性能与监控（P1）
-- [ ] 首字延迟、生成速度（tokens/s）统计
+- [x] 首字延迟、生成速度（tokens/s）统计
 - [ ] 内存占用显示
 - [ ] 加载进度条（模型加载耗时）
 
 ### 9. 硬件加速（P2）
-- [ ] NPU / GPU 加速（NNR、HiAI、CANN）
-- [ ] 量化模型适配（Q4_0、Q5_K_M、Q8_0 等）
+- [x] NNRt CPU/NPU 混合执行与 CPU 回退代码；真机加速收益待验证
+- [ ] GPU、HiAI、CANN 后端（当前未接入）
+- [x] CPU 量化实现已移植；各量化权重的设备兼容性待逐项验证
 
 ### 10. 高级能力（P2）
-- [ ] 多模态模型支持（视觉/语音）
+- [x] mmproj 视觉输入路径；真实图片质量与设备稳定性待验收
+- [ ] 语音产品流程（底层音频源码存在不代表应用支持）
 - [ ] 提示词模板管理（ChatML、Llama、Qwen 等）
 - [ ] 自定义 System Prompt
 - [ ] 网络模型下载（Hugging Face 镜像等）
@@ -96,7 +101,9 @@
 2. App 能解析模型元数据并正确加载。
 3. 输入文本后，模型能流式输出回答。
 4. 可调节 temperature / context 等关键参数并生效。
-5. 全程离线运行，无网络依赖。
+5. 本地模型导入与聊天可断网使用；显式开启的 Serve 和主动网络功能单独验收。
+
+以上为验收标准，当前尚未全部完成设备验证。用户报告的重复加载卡住、闪退为优先待办，不因本地测试通过而关闭。
 
 ## 六、关键技术风险
 

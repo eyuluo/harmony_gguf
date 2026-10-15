@@ -81,6 +81,9 @@ export class AppState {
   threads: number = 0;
   parallel: number = 1;
   imageMaxTokens: number = 1024;
+  useNpu: boolean = true;
+  accelerationSummary: string = '';
+  accelerationDetail: string = '';
 
   temperature: number = 0.8;
   topK: number = 40;

@@ -19,6 +19,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ---- 源码根路径 ----
 set(CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../entry/src/main/cpp")
 
+set(GGML_VERSION "0.26.0")
+set(GGML_BUILD_COMMIT "unknown")
+configure_file(${CPP_ROOT}/ggml/src/ggml-version.h.in ${CMAKE_CURRENT_BINARY_DIR}/ggml-version.h @ONLY)
+set(LLAMA_VERSION "0.6.0-dev")
+set(LLAMA_BUILD_COMMIT "unknown")
+configure_file(${CPP_ROOT}/engine/llama-version.h.in ${CMAKE_CURRENT_BINARY_DIR}/llama-version.h @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 # ---- ggml 源文件 ----
 file(GLOB GGML_SRC
     ${CPP_ROOT}/ggml/src/*.c
@@ -26,7 +34,8 @@ file(GLOB GGML_SRC
 
 file(GLOB GGML_CPU_SRC
     ${CPP_ROOT}/ggml/src/ggml-cpu/*.c
-    ${CPP_ROOT}/ggml/src/ggml-cpu/*.cpp)
+    ${CPP_ROOT}/ggml/src/ggml-cpu/*.cpp
+    ${CPP_ROOT}/ggml/src/ggml-cpu/tiled/*.cpp)
 
 # 架构 SIMD 源文件
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64|armv8")
@@ -57,6 +66,16 @@ file(GLOB LLAMA_SRC
     ${CPP_ROOT}/engine/*.cpp
     ${CPP_ROOT}/engine/models/*.cpp)
 
+file(GLOB MTMD_SRC
+    ${CPP_ROOT}/mtmd/*.cpp
+    ${CPP_ROOT}/mtmd/models/*.cpp)
+
+set(VENDOR_SRC
+    ${CPP_ROOT}/vendor/hash/hash.cpp
+    ${CPP_ROOT}/vendor/hash/xxhash/xxhash.c
+    ${CPP_ROOT}/vendor/hash/sha256/sha256.c
+    ${CPP_ROOT}/vendor/hash/sha1/sha1.cpp)
+
 # ---- NAPI 桥接层源文件（纯 C++ 逻辑，不依赖 NAPI 运行时）----
 # engine_state.cpp / llama_inference.cpp 仅依赖 llama.h + 标准库，
 # 可在本地 C++ 测试中直接链接，验证槽位管理与推理逻辑。
@@ -74,6 +93,10 @@ include_directories(
     ${CPP_ROOT}/ggml/src/ggml-cpu
     ${CPP_ROOT}/engine
     ${CPP_ROOT}/engine/models
+    ${CPP_ROOT}/mtmd
+    ${CPP_ROOT}/mtmd/models
+    ${CPP_ROOT}/vendor
+    ${CPP_ROOT}/vendor/hash
     ${CPP_ROOT}/napi
     ${CPP_ROOT}/common)
 
@@ -84,6 +107,10 @@ if(MSVC)
 else()
     set(CXX_FLAGS -fexceptions -frtti -Wno-unused-command-line-argument)
     set(ENGINE_DEFS _GNU_SOURCE GGML_USE_CPU)
+    if(MINGW)
+        set_source_files_properties(${LLAMA_SRC} ${NAPI_LOGIC_SRC} ${MTMD_SRC}
+            PROPERTIES COMPILE_OPTIONS -mprefer-vector-width=128)
+    endif()
 endif()
 
 # ---- ggml + llama + NAPI 逻辑 静态库 ----
@@ -92,14 +119,14 @@ add_library(engine_test_lib STATIC
     ${GGML_CPU_SRC}
     ${GGML_ARCH_SRC}
     ${LLAMA_SRC}
+    ${MTMD_SRC}
+    ${VENDOR_SRC}
     ${NAPI_LOGIC_SRC})
 
 target_compile_options(engine_test_lib PRIVATE ${CXX_FLAGS} ${GGML_ARCH_FLAGS})
 target_compile_definitions(engine_test_lib PRIVATE
     ${ENGINE_DEFS}
-    GGML_VERSION="0.3.0"
-    GGML_COMMIT="dev"
-    LLAMA_VERSION="0.3.0")
+    LLAMA_VERSION="0.6.0-dev")
 
 # ---- 测试辅助函数 ----
 function(add_engine_test name src)
@@ -116,8 +143,25 @@ add_engine_test(test-smoke-generate harmony/test-smoke-generate.cpp)
 add_engine_test(test-tokenizer-roundtrip harmony/test-tokenizer-roundtrip.cpp)
 add_engine_test(test-memory-check harmony/test-memory-check.cpp)
 add_engine_test(test-napi-bridge harmony/test-napi-bridge.cpp)
+if(WIN32)
+    target_link_libraries(test-napi-bridge PRIVATE psapi)
+endif()
+add_engine_test(test-npu-layout harmony/test-npu-layout.cpp)
 
 enable_testing()
+foreach(test_name ggml-ops gguf-parse model-load smoke-generate tokenizer-roundtrip memory-check)
+    add_test(NAME ${test_name} COMMAND test-${test_name})
+    set_tests_properties(${test_name} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        TIMEOUT 180)
+endforeach()
+add_executable(test-gemma4-chat harmony/test-gemma4-chat.cpp ${CPP_ROOT}/engine/llama-chat.cpp)
+target_compile_options(test-gemma4-chat PRIVATE ${CXX_FLAGS})
+add_test(NAME gemma4-chat COMMAND test-gemma4-chat)
+add_executable(test-arch-template-map harmony/test-arch-template-map.cpp ${CPP_ROOT}/engine/llama-chat.cpp)
+target_compile_options(test-arch-template-map PRIVATE ${CXX_FLAGS})
+add_test(NAME arch-template-map COMMAND test-arch-template-map)
+add_test(NAME npu-layout COMMAND test-npu-layout)
 add_executable(test-napi-environments test-napi-environments.cpp)
 add_test(NAME napi-environments COMMAND test-napi-environments)
 add_executable(test-prompt-cache test-prompt-cache.cpp)

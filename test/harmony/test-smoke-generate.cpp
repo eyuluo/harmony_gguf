@@ -12,6 +12,7 @@
 #include "testing.h"
 
 #include "llama.h"
+#include <cstring>
 
 #include <string>
 #include <vector>

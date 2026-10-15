@@ -23,7 +23,23 @@ export interface LoadConfig {
   parallel?: number;
   mmprojPath?: string;
   imageMaxTokens?: number;
+  useNpu?: boolean;
 }
+
+export interface AccelerationStatus {
+  enabled: boolean;
+  available: boolean;
+  device: string;
+  lastError: string;
+  executions: number;
+  fallbacks: number;
+  cpuGraphs: number;
+  lastNpuMs: number;
+  lastCpuMs: number;
+  cachedBytes: number;
+}
+
+export const getAccelerationStatus: () => AccelerationStatus;
 
 export interface GenerateParams {
   conversationId?: number;

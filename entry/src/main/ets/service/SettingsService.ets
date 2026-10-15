@@ -30,6 +30,7 @@ export class SettingsService {
     state.repeatPenalty = this.clampNumber(saved.repeatPenalty, 0.5, 2, 1.0);
     state.parallel = saved.parallel;
     state.imageMaxTokens = this.clampInteger(saved.imageMaxTokens, 0, 4096, 1024);
+    state.useNpu = saved.useNpu;
   }
 
   private clampInteger(value: number, min: number, max: number, fallback: number): number {
@@ -60,7 +61,8 @@ export class SettingsService {
       topP: state.topP,
       repeatPenalty: state.repeatPenalty,
       parallel: state.parallel,
-      imageMaxTokens: state.imageMaxTokens
+      imageMaxTokens: state.imageMaxTokens,
+      useNpu: state.useNpu
     };
     await SettingsStore.getInstance().init(context);
     await SettingsStore.getInstance().saveSettings(settings);

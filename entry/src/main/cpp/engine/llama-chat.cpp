@@ -42,6 +42,11 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "zephyr",            LLM_CHAT_TEMPLATE_ZEPHYR            },
     { "monarch",           LLM_CHAT_TEMPLATE_MONARCH           },
     { "gemma",             LLM_CHAT_TEMPLATE_GEMMA             },
+    { "gemma4",            LLM_CHAT_TEMPLATE_GEMMA_4           },
+    { "minimax-m2",        LLM_CHAT_TEMPLATE_MINIMAX_M2        },
+    { "nemotron3",         LLM_CHAT_TEMPLATE_NEMOTRON_3        },
+    { "glm4-think",        LLM_CHAT_TEMPLATE_GLM_4_THINK       },
+    { "qwen3",             LLM_CHAT_TEMPLATE_QWEN_3            },
     { "orion",             LLM_CHAT_TEMPLATE_ORION             },
     { "openchat",          LLM_CHAT_TEMPLATE_OPENCHAT          },
     { "vicuna",            LLM_CHAT_TEMPLATE_VICUNA            },
@@ -96,7 +101,17 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
     auto tmpl_contains = [&tmpl](const char * haystack) -> bool {
         return tmpl.find(haystack) != std::string::npos;
     };
-    if (tmpl_contains("<|im_start|>")) {
+    if (tmpl_contains("]~b]") && tmpl_contains("[e~[")) {
+        return LLM_CHAT_TEMPLATE_MINIMAX_M2;
+    } else if (tmpl_contains("<|im_start|>") && tmpl_contains("truncate_history_thinking")) {
+        return LLM_CHAT_TEMPLATE_NEMOTRON_3;
+    } else if (tmpl_contains("<|im_start|>") && tmpl_contains("last_query_index") && tmpl_contains("</think>")) {
+        return LLM_CHAT_TEMPLATE_QWEN_3;
+    } else if (tmpl_contains("[gMASK]<sop>") && tmpl_contains("<think>")) {
+        return LLM_CHAT_TEMPLATE_GLM_4_THINK;
+    } else if (tmpl_contains("<|turn>") && tmpl_contains("<turn|>")) {
+        return LLM_CHAT_TEMPLATE_GEMMA_4;
+    } else if (tmpl_contains("<|im_start|>")) {
         return tmpl_contains("<|im_sep|>")
             ? LLM_CHAT_TEMPLATE_PHI_4
             : tmpl_contains("<end_of_utterance>")
@@ -239,6 +254,45 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
     return LLM_CHAT_TEMPLATE_UNKNOWN;
 }
 
+std::string llm_chat_resolve_template(const std::string & builtin, const std::string & architecture,
+    const std::vector<std::string> & tokens) {
+    if (!builtin.empty()) {
+        return llm_chat_detect_template(builtin) == LLM_CHAT_TEMPLATE_UNKNOWN ? "" : builtin;
+    }
+    auto has = [&](const char * token) {
+        return std::find(tokens.begin(), tokens.end(), token) != tokens.end();
+    };
+    if (has("<|turn>") && has("<turn|>")) { return "gemma4"; }
+    if (has("]~b]") && has("[e~[")) { return "minimax-m2"; }
+    if (has("<|im_start|>") && has("<|im_end|>")) {
+        if ((architecture == "nemotron_h" || architecture == "nemotron_h_moe") && has("<think>")) { return "nemotron3"; }
+        return "chatml";
+    }
+    if (has("<|header_start|>") && has("<|header_end|>")) { return "llama4"; }
+    if (has("<|start_header_id|>") && has("<|end_header_id|>")) { return "llama3"; }
+    if (has("<start_of_turn>")) { return "gemma"; }
+    if (has(LU8("<｜User｜>")) && has(LU8("<｜Assistant｜>"))) { return "deepseek3"; }
+    if (has("[INST]") && has("[/INST]")) { return "llama2"; }
+    static const std::map<std::string, const char *> fallbacks = {
+        {"qwen", "chatml"}, {"qwen2", "chatml"}, {"qwen2moe", "chatml"}, {"qwen2vl", "chatml"},
+        {"qwen3", "chatml"}, {"qwen3moe", "chatml"}, {"qwen3next", "chatml"},
+        {"qwen3vl", "chatml"}, {"qwen3vlmoe", "chatml"}, {"qwen35", "chatml"}, {"qwen35moe", "chatml"},
+        {"gemma", "gemma"}, {"gemma2", "gemma"}, {"gemma3", "gemma"}, {"gemma3n", "gemma"},
+        {"gemma4", "gemma4"}, {"chatglm", "chatglm3"}, {"glm4", "chatglm4"},
+        {"glm4moe", "glm4-think"}, {"glm-dsa", "glm4-think"}, {"deepseek2", "deepseek2"},
+        {"minimax-m2", "minimax-m2"}
+    };
+    const auto it = fallbacks.find(architecture);
+    return it == fallbacks.end() ? "" : it->second;
+}
+
+static std::string without_thinking(const std::string & text) {
+    const size_t end = text.rfind("</think>");
+    if (end != std::string::npos) { return text.substr(end + 8); }
+    const size_t begin = text.find("<think>");
+    return begin == std::string::npos ? text : text.substr(0, begin);
+}
+
 // Simple version of "llama_apply_chat_template" that only works with strings
 // This function uses heuristic checks to determine commonly used template. It is not a jinja parser.
 int32_t llm_chat_apply_template(
@@ -247,7 +301,85 @@ int32_t llm_chat_apply_template(
     std::string & dest, bool add_ass) {
     // Taken from the research: https://github.com/ggml-org/llama.cpp/issues/5527
     std::stringstream ss;
-    if (tmpl == LLM_CHAT_TEMPLATE_CHATML) {
+    if (tmpl == LLM_CHAT_TEMPLATE_QWEN_3) {
+        size_t last_user = 0;
+        for (size_t i = 0; i < chat.size(); ++i) {
+            if (std::string(chat[i]->role) == "user") { last_user = i; }
+        }
+        for (size_t i = 0; i < chat.size(); ++i) {
+            const std::string role = chat[i]->role;
+            std::string content = chat[i]->content;
+            if (role == "tool") {
+                if (i == 0 || std::string(chat[i - 1]->role) != "tool") { ss << "<|im_start|>user"; }
+                ss << "\n<tool_response>\n" << content << "\n</tool_response>";
+                if (i + 1 == chat.size() || std::string(chat[i + 1]->role) != "tool") { ss << "<|im_end|>\n"; }
+                continue;
+            }
+            if (role == "assistant" && i < last_user && content.find("</think>") != std::string::npos) {
+                content = without_thinking(content);
+                content.erase(0, content.find_first_not_of('\n'));
+            }
+            ss << "<|im_start|>" << role << "\n" << content << "<|im_end|>\n";
+        }
+        if (add_ass) { ss << "<|im_start|>assistant\n"; }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_MINIMAX_M2) {
+        const bool system = !chat.empty() && std::string(chat.front()->role) == "system";
+        ss << "]~!b[]~b]system\n" << (system ? chat.front()->content :
+            "You are MiniMax-M2, a helpful AI assistant built by MiniMax. Knowledge cutoff: 2025-06.") << "[e~[\n";
+        size_t last_user = 0;
+        for (size_t i = 0; i < chat.size(); ++i) {
+            if (std::string(chat[i]->role) == "user") { last_user = i; }
+        }
+        for (size_t i = system ? 1 : 0; i < chat.size(); ++i) {
+            const std::string role = chat[i]->role;
+            if (role == "tool" || role == "system") { return -1; }
+            std::string content = chat[i]->content;
+            if (role == "assistant" && i < last_user) { content = without_thinking(content); }
+            ss << "]~b]" << (role == "assistant" ? "ai" : role) << "\n" << content << "[e~[\n";
+        }
+        if (add_ass) { ss << "]~b]ai\n<think>\n"; }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_NEMOTRON_3) {
+        const bool system = !chat.empty() && std::string(chat.front()->role) == "system";
+        ss << "<|im_start|>system\n" << (system ? chat.front()->content : "") << "<|im_end|>\n";
+        size_t last_user = 0;
+        for (size_t i = 0; i < chat.size(); ++i) {
+            if (std::string(chat[i]->role) == "user") { last_user = i; }
+        }
+        for (size_t i = system ? 1 : 0; i < chat.size(); ++i) {
+            const std::string role = chat[i]->role;
+            std::string content = chat[i]->content;
+            if (role == "tool") {
+                const bool first = i == 0 || std::string(chat[i - 1]->role) != "tool";
+                const bool last = i + 1 == chat.size() || std::string(chat[i + 1]->role) != "tool";
+                if (first) { ss << "<|im_start|>user\n"; }
+                ss << "<tool_response>\n" << content << "\n</tool_response>\n";
+                if (last) { ss << "<|im_end|>\n"; }
+                continue;
+            }
+            if (role == "assistant") {
+                if (i < last_user) { content = "<think></think>" + without_thinking(content); }
+                else if (content.find("<think>") == std::string::npos && content.find("</think>") == std::string::npos) {
+                    content = "<think></think>" + content;
+                }
+                content = trim(content);
+            }
+            ss << "<|im_start|>" << role << "\n" << content << "<|im_end|>\n";
+        }
+        if (add_ass) { ss << "<|im_start|>assistant\n<think>\n"; }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_GLM_4_THINK) {
+        ss << "[gMASK]<sop>";
+        for (auto * message : chat) {
+            const std::string role = message->role;
+            if (role == "tool") {
+                ss << "<|observation|>\n<tool_response>\n" << message->content << "\n</tool_response>";
+            } else if (role == "assistant") {
+                ss << "<|assistant|>\n<think></think>";
+                const auto content = trim(without_thinking(message->content));
+                if (!content.empty()) { ss << "\n" << content; }
+            } else { ss << "<|" << role << "|>\n" << message->content; }
+        }
+        if (add_ass) { ss << "<|assistant|>"; }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_CHATML) {
         // chatml template
         for (auto message : chat) {
             ss << "<|im_start|>" << message->role << "\n" << message->content << "<|im_end|>\n";
@@ -375,6 +507,22 @@ int32_t llm_chat_apply_template(
         }
         if (add_ass) {
             ss << "<s>assistant\n";
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_GEMMA_4) {
+        for (auto message : chat) {
+            const std::string role = std::string(message->role) == "assistant" ? "model" : message->role;
+            std::string content = message->content;
+            if (role == "model") {
+                size_t begin = 0;
+                while ((begin = content.find("<|channel>", begin)) != std::string::npos) {
+                    const size_t end = content.find("<channel|>", begin + 10);
+                    content.erase(begin, end == std::string::npos ? std::string::npos : end + 10 - begin);
+                }
+            }
+            ss << "<|turn>" << role << "\n" << trim(content) << "<turn|>\n";
+        }
+        if (add_ass) {
+            ss << "<|turn>model\n";
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_GEMMA) {
         // google/gemma-7b-it

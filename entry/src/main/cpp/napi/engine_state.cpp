@@ -8,6 +8,37 @@
 #include "mtmd.h"
 #include "conversation_slots.h"
 #include "ggml-cpu.h"
+#include "llama-chat.h"
+#ifdef GGML_USE_HARMONY_NPU
+#include "harmony_npu.h"
+#endif
+
+namespace {
+struct PendingModel {
+    llama_model * model = nullptr;
+    llama_context * context = nullptr;
+    ggml_threadpool_t threadpool = nullptr;
+    mtmd_context * projector = nullptr;
+    bool committed = false;
+    ~PendingModel() {
+        if (committed) { return; }
+#ifdef GGML_USE_HARMONY_NPU
+        try {
+            HarmonyNpuConfigure(false);
+        } catch (...) {
+            fprintf(stderr, "[Harmony-GGUF] 清理失败加载的 NPU 状态时发生异常\n");
+        }
+#endif
+        if (projector) { mtmd_free(projector); }
+        if (context) {
+            llama_detach_threadpool(context);
+            llama_free(context);
+        }
+        if (threadpool) { ggml_threadpool_free(threadpool); }
+        if (model) { llama_model_free(model); }
+    }
+};
+}
 
 // 停止生成的中止回调：返回 true 时 llama_decode 立即中止
 static bool abort_callback(void * /*data*/) {
@@ -268,6 +299,10 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         std::unique_lock<std::mutex> lock(mutex_);
         gen_cv_.wait(lock, [this]() { return active_count_ == 0; });
 
+#ifdef GGML_USE_HARMONY_NPU
+        HarmonyNpuConfigure(false);
+#endif
+
         if (mtmd_ctx_ != nullptr) {
             mtmd_free(mtmd_ctx_);
             mtmd_ctx_ = nullptr;
@@ -287,11 +322,15 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         }
         slot_context_ = 0;
         context_threads_ = 0;
-        cached_tokens_.clear();
+        decltype(cached_tokens_)().swap(cached_tokens_);
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
-        slot_used_.clear();
+        decltype(slot_used_)().swap(slot_used_);
+        decltype(slot_owners_)().swap(slot_owners_);
+        decltype(slot_recency_)().swap(slot_recency_);
+        decltype(slot_reset_)().swap(slot_reset_);
+        recency_clock_ = 0;
         n_slots_per_pool_ = 0;
     }
     {
@@ -299,6 +338,8 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         sessions_.clear();
     }
 
+    try {
+    PendingModel pending;
     // 耗时加载放在锁外，避免阻塞 generate 的 IsLoaded/BeginGenerate
     llama_backend_init();
     llama_log_set(llama_log_callback, nullptr);
@@ -313,8 +354,11 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
 
     llama_model_params model_params = llama_model_default_params();
     model_params.vocab_only = config.vocab_only;
+#ifdef GGML_USE_HARMONY_NPU
+    HarmonyNpuConfigure(config.use_npu && !config.vocab_only);
+#endif
 
-    llama_model * model = llama_model_load_from_file(path.c_str(), model_params);
+    llama_model * model = pending.model = llama_model_load_from_file(path.c_str(), model_params);
     if (model == nullptr) {
         fprintf(stderr, "[Harmony-GGUF] llama_model_load_from_file failed\n");
         ClearStopAll();
@@ -324,9 +368,10 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     // parallel 为每池最大并发槽位数（软上限），槽位按需分配；KV 统一缓冲，总容量 = 每槽位长度 × 2 × parallel
     const uint32_t parallel = config.parallel > 0 ? config.parallel : 1;
     const uint32_t model_ctx = static_cast<uint32_t>(llama_model_n_ctx_train(model));
+    const uint32_t available_ctx = model_ctx > 0 ? model_ctx : 4096u;
     const uint32_t n_ctx_seq = config.context_length > 0
-        ? std::min(config.context_length, model_ctx)
-        : std::min(model_ctx, 4096u);
+        ? std::min(config.context_length, available_ctx)
+        : std::min(available_ctx, 4096u);
 
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.kv_unified = true;                  // 统一 KV 缓冲：seq_id 按需分配（上限 LLAMA_MAX_SEQ），不预分割槽位
@@ -339,10 +384,9 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     llama_context * ctx = nullptr;
     ggml_threadpool_t cpu_threadpool = nullptr;
     if (!config.vocab_only) {
-        ctx = llama_init_from_model(model, ctx_params);
+        ctx = pending.context = llama_init_from_model(model, ctx_params);
         if (ctx == nullptr) {
             fprintf(stderr, "[Harmony-GGUF] llama_init_from_model failed\n");
-            llama_model_free(model);
             ClearStopAll();
             return error_code_value(ErrorCode::ModelLoadFailed);
         }
@@ -350,10 +394,8 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
         auto threadpool_params = ggml_threadpool_params_default(llama_n_threads(ctx));
         threadpool_params.poll = 0;
         threadpool_params.paused = true;
-        cpu_threadpool = ggml_threadpool_new(&threadpool_params);
+        cpu_threadpool = pending.threadpool = ggml_threadpool_new(&threadpool_params);
         if (cpu_threadpool == nullptr) {
-            llama_free(ctx);
-            llama_model_free(model);
             ClearStopAll();
             return error_code_value(ErrorCode::OutOfMemory);
         }
@@ -373,13 +415,18 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
             mparams.image_max_tokens = config.image_max_tokens > 0 ? config.image_max_tokens : -1;
             mparams.warmup = false;                                   // 跳过预热，缩短加载耗时
             mparams.print_timings = false;
-            mctx = mtmd_init_from_file(config.mmproj_path.c_str(), model, mparams);
+            mctx = pending.projector = mtmd_init_from_file(config.mmproj_path.c_str(), model, mparams);
             if (mctx == nullptr) {
                 fprintf(stderr, "[Harmony-GGUF] mtmd_init_from_file failed: %s\n", config.mmproj_path.c_str());
             }
         }
     }
 
+    std::vector<bool> slots(static_cast<size_t>(parallel) * 2, false);
+    std::vector<std::vector<llama_token>> tokens(slots.size());
+    std::vector<uint64_t> owners(slots.size(), 0);
+    std::vector<uint64_t> recency(slots.size(), 0);
+    std::vector<bool> reset(slots.size(), true);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         model_ = model;
@@ -392,19 +439,27 @@ int32_t EngineState::LoadModel(const std::string & path, const LoadConfig & conf
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
         n_slots_per_pool_ = parallel;
-        slot_used_.assign(static_cast<size_t>(parallel) * 2, false);
-        cached_tokens_.resize(slot_used_.size());
-        slot_owners_.assign(slot_used_.size(), 0);
-        slot_recency_.assign(slot_used_.size(), 0);
-        slot_reset_.assign(slot_used_.size(), true);
+        slot_used_.swap(slots);
+        cached_tokens_.swap(tokens);
+        slot_owners_.swap(owners);
+        slot_recency_.swap(recency);
+        slot_reset_.swap(reset);
     }
-
+    pending.committed = true;
     ClearStopAll();
 
     fprintf(stderr, "[Harmony-GGUF] model loaded successfully (parallel=%u per pool, total_seq=%u, slot_ctx=%u, kv_unified)\n",
             parallel, parallel * 2, n_ctx_seq);
 
     return error_code_value(ErrorCode::Ok);
+    } catch (const std::bad_alloc &) {
+        ClearStopAll();
+        return error_code_value(ErrorCode::OutOfMemory);
+    } catch (const std::exception & error) {
+        fprintf(stderr, "[Harmony-GGUF] 模型初始化失败：%s\n", error.what());
+        ClearStopAll();
+        return error_code_value(ErrorCode::ModelLoadFailed);
+    }
 }
 
 void EngineState::UnloadModel() {
@@ -414,6 +469,10 @@ void EngineState::UnloadModel() {
     {
         std::unique_lock<std::mutex> lock(mutex_);
         gen_cv_.wait(lock, [this]() { return active_count_ == 0; });
+
+#ifdef GGML_USE_HARMONY_NPU
+        HarmonyNpuConfigure(false);
+#endif
 
         if (mtmd_ctx_ != nullptr) {
             mtmd_free(mtmd_ctx_);
@@ -434,11 +493,15 @@ void EngineState::UnloadModel() {
         }
         slot_context_ = 0;
         context_threads_ = 0;
-        cached_tokens_.clear();
+        decltype(cached_tokens_)().swap(cached_tokens_);
     }
     {
         std::lock_guard<std::mutex> lock(slot_mutex_);
-        slot_used_.clear();
+        decltype(slot_used_)().swap(slot_used_);
+        decltype(slot_owners_)().swap(slot_owners_);
+        decltype(slot_recency_)().swap(slot_recency_);
+        decltype(slot_reset_)().swap(slot_reset_);
+        recency_clock_ = 0;
         n_slots_per_pool_ = 0;
     }
     {
@@ -470,4 +533,26 @@ std::string EngineState::ModelChatTemplate() const {
     }
     const char * value = llama_model_chat_template(model_, nullptr);
     return value != nullptr ? std::string(value) : std::string();
+}
+
+std::string EngineState::ResolvedChatTemplate() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!model_) { return ""; }
+    const char * raw = llama_model_chat_template(model_, nullptr);
+    const std::string builtin = raw ? raw : "";
+    char arch[128] = {};
+    const auto length = llama_model_meta_val_str(model_, "general.architecture", arch, sizeof(arch));
+    const std::string architecture = length > 0 && length < static_cast<int32_t>(sizeof(arch)) ? arch : "";
+    std::vector<std::string> markers;
+    if (builtin.empty()) {
+        const auto * vocab = llama_model_get_vocab(model_);
+        const std::vector<std::string> known = {"<|turn>", "<turn|>", "]~b]", "[e~[", "<|im_start|>",
+            "<|im_end|>", "<|header_start|>", "<|header_end|>", "<|start_header_id|>",
+            "<|end_header_id|>", "<start_of_turn>", "<｜User｜>", "<｜Assistant｜>", "[INST]", "[/INST]", "<think>"};
+        for (int32_t i = 0; vocab && i < llama_vocab_n_tokens(vocab); ++i) {
+            const char * token = llama_vocab_get_text(vocab, i);
+            if (token && std::find(known.begin(), known.end(), token) != known.end()) { markers.emplace_back(token); }
+        }
+    }
+    return llm_chat_resolve_template(builtin, architecture, markers);
 }

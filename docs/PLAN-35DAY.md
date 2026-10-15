@@ -1,10 +1,12 @@
 # Harmony-GGUF — 35 天开发计划
 
-> 版本：v0.4 · 关联文档：`PRD.md`（产品需求）、`mvp.md`（功能范围）、`TDD.md`（技术设计）、`prompt.md`（角色分工）
+> 状态同步：2026-10-15。本文为原始排期参考，日期与任务描述不表示实际完成状态。当前里程碑、验证证据及稳定性待办统一见 [STATUS.md](STATUS.md)。
+
+> 原始计划版本：v0.4 · 关联文档：`PRD.md`（产品需求）、`mvp.md`（功能范围）、`TDD.md`（技术设计）
 >
 > 目标：35 个工作日内完成 MVP 闭环（P0）与 Serve 服务（P1），产出可安装到真机运行的离线 GGUF 大模型运行器。
 >
-> 团队按 `prompt.md` 三角色并行协作（A 引擎 / B 应用 / C 质量），职责标注于各任务前缀。
+> 原始分工为 A 引擎 / B 应用 / C 质量，职责标注于各任务前缀；本文件不要求当前执行使用并行代理。
 >
 > v0.4 变更：M1 压缩至 10 天，引擎聚焦主路径（llama / qwen2）；特殊架构（deepseek / chatglm）与完整聊天模板后移至阶段 2；B 的应用开发（UI / 注册表 / 类型声明 / Service 骨架）前移至引擎移植期间并行，缩短联调周期。
 
@@ -21,14 +23,14 @@
 
 优先级映射：**P0**（阶段 1–4）+ **P1 Serve**（阶段 5）。会话历史/性能监控属 P1，为凑齐 MVP 验收提前到阶段 4 一并完成。
 
-架构与聊天模板范围不收缩：引擎侧完整覆盖主流架构（llama / qwen2 / gemma / mistral / deepseek / chatglm 等）并内置对应聊天模板。为压缩 M1 至 10 天，特殊架构（deepseek / chatglm）与完整聊天模板后移至阶段 2 补齐，主路径（llama / qwen2）优先打通。仅「内置模型注册表」作为独立 P1 功能（FR-27~30 的条目化 JSON 资源与匹配逻辑）不纳入 35 天。
+架构范围不收缩；当前代码已移植主流及上游新增架构，但权重兼容性仍需逐项验证。聊天模板字符串消息支持范围见 `CHAT-TEMPLATES.md`，不宣称执行任意 Jinja。原始计划将注册表和 P2 扩展后置；目前内置 JSON、视觉和 NPU 混合执行已有代码，实际状态以 `STATUS.md` 为准。
 
 ## 2. 角色与分工
 
 | 角色 | 职责 | 覆盖里程碑 |
 |------|------|-----------|
 | **A — Native 引擎工程师** | llama.cpp 移植 + 编译优化 + NAPI 桥接 + HTTP Serve + 数据持久化（注册表 / 会话 RDB / 参数 Preferences） | M1/M2/M4/M5 |
-| **B — 应用开发工程师** | 全部 ArkTS 代码：UI 页面 + 业务逻辑层（InferenceService/ModelManager）+ ServeController + 参数配置 UI | M1/M2/M3/M4/M5 |
+| **B — 应用开发工程师** | 全部 ArkTS 代码：UI 页面 + 业务逻辑层（InferenceService/ModelService）+ ServeService + 参数配置 UI | M1/M2/M3/M4/M5 |
 | **C — 质量保障工程师** | 单元测试 + NAPI 集成测试 + Serve API 自动化测试 + 性能基线测试 + CI 流水线搭建 + 崩溃/内存监控 | 贯穿所有阶段 |
 
 ### 角色 × 阶段 矩阵
@@ -40,7 +42,7 @@
 | 2 桥接 | NAPI 封装、TSFN、特殊架构补齐（主责） | 类型声明定稿、Service/Session 完善 | NAPI 集成测试、回调稳定性 |
 | 3 模型+对话 | 引擎联调支持、缺陷修复、注册表匹配逻辑 | UI + 业务（主责） | 端到端测试、断网验证 |
 | 4 完善 | 编译优化、性能调优、会话 RDB、参数持久化 | 参数/会话/监控 UI（主责） | 性能基线测试、崩溃/内存监控 |
-| 5 Serve | Serve 核心（主责） | ServeController、控制 UI | Serve API 自动化测试、整体回归 |
+| 5 Serve | Serve 核心（主责） | ServeService、控制 UI | Serve API 自动化测试、整体回归 |
 
 > 任务前缀：`[A]` 引擎、`[B]` 应用、`[C]` 质量。无前缀为共同/协商项。
 
@@ -49,8 +51,8 @@
 ## 3. 阶段 0：准备与环境验证（Day 1–2）
 
 ### Day 1 — 环境与上游研读
-- [A] 确认 OHOS NDK（clang）可用，`hvigorw assembleHap` 构建现有模板成功（当前仅有 `add()` 示例）。
-- [A] 研读 `D:\project\llama.cpp` 关键文件：`ggml/src/ggml-cpu`、`src/llama-model*.cpp`、`src/llama-arch.cpp`、`src/llama-graph.cpp`、`src/llama-context.cpp`、`src/llama-sampler.cpp`。
+- [A] 确认 OHOS NDK（clang）可用，`hvigorw assembleHap` 构建成功（原始准备阶段任务，当前应用已有生产实现）。
+- [A] 研读 `../llama_cpp` 关键文件：`ggml/src/ggml-cpu`、`src/llama-model*.cpp`、`src/llama-arch.cpp`、`src/llama-graph.cpp`、`src/llama-context.cpp`、`src/llama-sampler.cpp`。
 - [A] 确定 MVP 支持的**目标架构范围**：覆盖主流开源模型架构（llama / qwen2 / gemma / mistral / deepseek / chatglm 等），与 PRD FR-26 注册表范围对齐，不收缩；但主路径（llama / qwen2）先行。
 - [B] 读 `TDD.md`，搭建 ArkTS 项目目录骨架（`ui/`、`service/`、`registry/`）。
 - [C] 确认 hypium 单元测试框架可用，搭建 CI 流水线（`hvigorw assembleHap` + `codeLinter` 自动化脚本）。
@@ -59,7 +61,7 @@
 - [A] 在 `entry/src/main/cpp/` 下建立目录骨架：`engine/`、`napi/`、`common/`（后续 `serve/`）。
 - [A] 将 `ggml` CPU 后端与 `engine/` 源文件加入 `CMakeLists.txt`，确认可被 OHOS NDK 编译通过（不要求能跑，先编译）。
 - [A] 验证 NEON 编译选项与 `pthread`、`mmap` 可用性。
-- [A] 编写内置注册表 `registry/models.json` 初稿（架构→chatTemplate→defaultParams 映射）。
+- [A] 编写内置注册表 `entry/src/main/resources/rawfile/models.json`（架构→chatTemplate→defaultParams 映射）。
 - [B] 搭建 UI 页面空壳（对话页 / 模型导入页 / 设置页）。
 - [C] 准备多架构小型测试模型集（llama / qwen2 / gemma / mistral / deepseek / chatglm 各一个 Q4 小模型）。
 
@@ -69,7 +71,7 @@
 
 ## 4. 阶段 1：llama.cpp 引擎移植（Day 3–12）
 
-> 策略：只保留 CPU 后端，裁剪 CUDA/Metal/Vulkan/多模态/远程 RPC。M1 聚焦主路径（llama / qwen2，GQA + 标准 RoPE），最快打通「权重加载 → 前向 → 采样 → 解码」生成链；特殊架构（deepseek / chatglm）与完整聊天模板后移至阶段 2 补齐。B 应用开发同期并行（见阶段内并行任务）。
+> 原始 M1 策略：优先移植 CPU 文本主路径，裁剪 CUDA/Metal/Vulkan/远程 RPC。当前已加入 CPU 视觉及 NNRt 混合执行扩展，仍保留完整 CPU 回退路径。主路径与其他架构的验收证据分别记录。
 
 ### Day 3–4 — ggml 核心张量与算子（A 主责）
 - [A] 移植 `ggml` 张量结构、内存管理与基础算子（matmul、softmax、rmsnorm、rope 等 CPU 实现）。
@@ -107,7 +109,7 @@
 - [A] 若第二批延误，仅顺延该批，主路径与 M1 验收不受影响。
 
 ### 阶段内并行任务（B/C，贯穿 Day 3–12）
-- [A] 完善 `registry/models.json`（对齐 `ModelRegistryEntry` 字段，见 `API.md` 第 2.7 节）。
+- [A] 完善 `entry/src/main/resources/rawfile/models.json`（对齐 `ModelRegistryEntry` 字段，见 `API.md` 第 2.7 节）。
 - [B] 编写/评审 `Index.d.ts` 类型声明初稿（对齐 A 的接口签名）。
 - [B] 实现 `InferenceService` / `Session` 骨架（依赖类型声明，不依赖引擎可用）。
 - [B] 推进 UI：模型导入页、对话页、参数设置页的静态交互。
@@ -147,13 +149,13 @@
 ### Day 19–20 — 模型导入与元数据（B 主责）
 - [B] 文件选择器（FilePicker）导入 `.gguf`，拷贝到沙箱 `models/`。
 - [B] 调用 `parseGgufMetadata` 展示元数据（架构、量化、参数量、大小）。
-- [B] 模型列表、删除与存储占用展示（`ModelManager`）。
+- [B] 模型列表、删除与存储占用展示（`ModelService`）。
 - [A] 支持 B 联调，修复引擎/桥接缺陷。
 
 ### Day 21–22 — 对话界面（B 主责）
 - [B] 完成 `InferenceService` 与 `Session` 封装（`service/`）。
 - [B] 对话页：多轮消息、流式打字机效果、停止生成、复制、重新生成、新建/切换会话。
-- [A] 注册表匹配逻辑（architecture→chatTemplate 匹配、未命中回退通用模板）。
+- [A] 模板选择逻辑（元数据优先，缺失时检查词表与明确架构默认，证据不足时明确报错）。
 - [C] UI 冒烟与流程测试。
 
 ### Day 23 — M3 验收
@@ -190,8 +192,8 @@
 ### Day 29–30 — Serve 核心（A 主责）
 - [A] 引入 cpp-httplib，实现 `startServer` / `stopServer` / `getServerStatus`（`serve/`）。
 - [A] 路由：`GET /health`、`GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/completions`。
-- [A] 复用推理引擎，实现单模型实例 + 多槽位并发调度（可配置并行度，默认 2）。
-- [B] 实现 `ServeController` 骨架与 Serve 控制 UI（启停、状态）。
+- [A] 复用推理引擎，实现单模型实例 + 多槽位并发调度（NAPI/Serve 每池 parallel，默认各 1，总计 2）。
+- [B] 实现 `ServeService` 与 Serve 控制 UI（启停、状态）。
 
 ### Day 31 — SSE 流式（A 主责）
 - [A] `stream: true` 时输出 `text/event-stream`，逐 token `data: {...}`，结束 `data: [DONE]`。
@@ -224,19 +226,20 @@
 | NAPI 线程安全回调崩溃 | 阶段 2 | 封装 TSFN 工具类 + 单测覆盖；停止生成按 requestId，配合 decode 互斥锁保护 |
 | 移动端内存不足 | 阶段 3/4 | 限制 context 长度、推荐 Q4 量化、OOM 优雅降级 |
 | Serve 并发线程竞争 | 阶段 5 | 单实例 + 多槽位并发，每槽位独立 KV 序列与采样器，`llama_decode` 加锁保护推理状态 |
-| 注册表匹配失败 | 阶段 3 | 未命中回退通用模板，预留手动选择接口 |
+| 模板匹配失败 | 阶段 3 | 元数据优先；缺失时检查词表和明确架构默认，无法确定则报错 |
 | 三角色并行接口不齐 | 阶段 2/3 | 以 `API.md` 为接口契约，A/B 在阶段 1 即并行对齐 `Index.d.ts` 与错误码 |
 | 主路径延误挤压特殊架构 | 阶段 1/2 | 特殊架构已后移至阶段 2；若仍延误，优先保 llama/qwen2 + gemma/mistral 主路径，deepseek/chatglm 作为最后补齐项 |
 
 ## 10. 依赖与前置条件
 
 - OHOS SDK 26.0.0 + DevEco Studio 环境可用。
-- `D:\project\llama.cpp` 源码快照（0.3.0-dev）可访问。
+- `../llama_cpp` 源码快照可访问；当前 llama.cpp 0.6.0-dev / ggml 0.26.0，非 Git 仓库。
 - 一台 HarmonyOS NEXT 真机（或模拟器）用于真机测试。
 - 至少 1 个 Q4 量化的小型 GGUF 模型用于联调（建议覆盖各架构的小模型集）。
 
-## 11. 范围外（35 天内不做）
+## 11. 原始后置范围与当前调整
 
-- 内置模型注册表条目化实现（FR-27~30 的 JSON 资源与自动匹配逻辑）——引擎侧架构与聊天模板已完整覆盖，仅注册表作为独立功能后置。
-- NPU/GPU 加速、多模态、提示词模板管理、网络模型下载（P2）。
-- 会话导出/分享（P1 扩展）。
+- 内置模型注册表 JSON 已存在，自动参数应用和覆盖仍待核查验收。
+- NPU 混合执行与视觉已实现，设备收益、质量和稳定性待验收；GPU、语音产品流程、模板管理和网络下载仍为扩展目标。
+- 会话导出/分享仍为 P1 扩展目标。
+- 当前优先级：重复加载闪退复现与内存验证，然后补齐设备 NAPI、多轮、多模态和 Serve 回归。

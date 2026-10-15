@@ -20,7 +20,7 @@ ArkTS UI（ArkUI） → 服务层（ArkTS） → NAPI 桥接（C++） → 推理
 
 - 操作系统：Windows 11，Shell：PowerShell 7+。
 - DevEco Studio，HarmonyOS SDK 26.0.0，OHOS NDK（clang），native 编译器为 BiSheng。
-- 上游源码：`D:\project\llama.cpp`（0.3.0-dev，**非 git 仓库**）。
+- 上游源码：`../llama_cpp`（当前环境为 `D:\Project\llama_cpp`，llama.cpp 0.6.0-dev / ggml 0.26.0，**非 git 仓库**）。
 
 ## 3. 目录结构
 
@@ -64,7 +64,7 @@ Harmony_gguf/
 
 ## 6. 关键约束（务必遵守）
 
-1. **禁止整体拷贝上游源码**：`D:\project\llama.cpp` 仅**按需移植**所需文件，不整目录复制。
+1. **禁止整体拷贝上游源码**：`../llama_cpp` 仅**按需移植**所需文件，不整目录复制。
 2. **只保留 CPU 后端**：裁剪 CUDA/Metal/Vulkan/OpenCL/SYCL/CANN/RPC 等所有非 CPU 后端与非 ARM 架构代码。
 3. **架构范围不收缩**：引擎需覆盖 llama / qwen2 / gemma / mistral / deepseek / chatglm 等主流架构及其聊天模板。
 4. **单模型实例 + 多槽位并发**：同一时刻仅一个已加载模型；切换即卸载旧模型。可同时处理多个生成任务，启用 `kv_unified` 统一 KV 缓冲，槽位按需分配（每池软上限默认 8，可配置），每个任务独占一个 KV cache 序列槽位（seq_id）与独立采样器。
