@@ -153,8 +153,11 @@ export class InferenceService {
       state.loadedConfig = null;
       state.serverRunning = false;
       state.serverInfo = '服务未启动';
+      state.healthStatus = '';
+      state.loadFailed = false;
       state.accelerationSummary = '';
       state.accelerationDetail = '';
+      state.models = state.models.slice();
     }).catch((error: Error) => {
       hilog.error(DOMAIN, TAG, 'unload model failed: %{public}s', String(error));
     }).finally(() => {
@@ -465,24 +468,31 @@ export class InferenceService {
       const status = testNapi.getAccelerationStatus();
       if (!status.enabled) {
         state.accelerationSummary = 'CPU 推理';
-        state.accelerationDetail = '';
+        state.accelerationDetail = 'NPU 加速已关闭，本次加载使用 CPU 计算。';
         return;
       }
       if (!status.available) {
         state.accelerationSummary = 'CPU 推理 · NPU 不可用';
-        state.accelerationDetail = status.lastError;
+        state.accelerationDetail = 'NPU 加速已开启，但未检测到可用的 NPU 计算设备。本次加载使用 CPU 计算。' +
+          (status.lastError.length > 0 ? '\n检测结果：' + status.lastError : '');
         return;
       }
       state.accelerationSummary = status.executions > 0 ?
-        `CPU + NPU · NPU 执行 ${status.executions} 次` : 'CPU 推理 · 尚无 NPU 加速执行';
-      let detail = `${status.device} · 回退 ${status.fallbacks} 次 · CPU 整图 ${status.cpuGraphs} 次`;
+        `CPU + NPU · 已采用 ${status.executions} 次 NPU 结果` : 'CPU 推理 · 尚未采用 NPU 结果';
+      let detail = `检测到的 NPU：${status.device}\n` +
+        (status.executions > 0 ? '本次加载期间，部分计算已采用 NPU 结果，其余计算由 CPU 完成。' :
+          'NPU 已开启且设备可用，但截至最近一次更新，尚未采用 NPU 计算结果。') +
+        `\n\n采用 NPU 结果的计算次数：${status.executions}\n` +
+        `尝试 NPU 后改由 CPU 完成的次数：${status.fallbacks}\n` +
+        `未分配给 NPU、直接由 CPU 完成的计算图次数：${status.cpuGraphs}`;
       if (status.lastCpuMs > 0) {
-        detail += `\n最近子图对照：NPU ${status.lastNpuMs.toFixed(1)} ms / CPU ${status.lastCpuMs.toFixed(1)} ms`;
+        detail += `\n\n最近一次局部计算对照：\nNPU ${status.lastNpuMs.toFixed(1)} ms / CPU ${status.lastCpuMs.toFixed(1)} ms` +
+          '\n此耗时仅对应被比较的计算部分，不是整条回复耗时。';
       }
       if (status.lastError.length > 0) {
-        detail += '\n' + status.lastError;
+        detail += '\n\n最近一次检测或回退说明：' + status.lastError;
       } else if (status.executions === 0 && status.cpuGraphs > 0) {
-        detail += '\n当前输入规模或权重布局未满足 NPU 卸载条件';
+        detail += '\n\n已处理的计算尚未满足 NPU 的支持、规模或性能条件。';
       }
       state.accelerationDetail = detail;
     } catch (error) {

@@ -2,6 +2,8 @@
 cmake_minimum_required(VERSION 3.5.0)
 project(Harmony_gguf)
 
+option(HARMONY_ENABLE_ARM_I8MM "为支持 ARM i8mm 的设备启用 Q4/Q6 矩阵乘法优化" OFF)
+
 set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(DEFINED PACKAGE_FIND_FILE)
@@ -40,6 +42,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64|armv8")
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/arm/quants.c
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/arm/repack.cpp)
     set(GGML_ARCH_FLAGS -march=armv8.2-a+dotprod+fp16)
+    if(HARMONY_ENABLE_ARM_I8MM)
+        set(GGML_ARCH_FLAGS -march=armv8.2-a+dotprod+fp16+i8mm)
+    endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i686|x86")
     set(GGML_ARCH_SRC
         ${NATIVERENDER_ROOT_PATH}/ggml/src/ggml-cpu/arch/x86/quants.c
@@ -127,4 +132,5 @@ target_compile_options(entry PRIVATE
 target_compile_definitions(entry PRIVATE
     _GNU_SOURCE
     GGML_USE_CPU
+    GGML_USE_CPU_REPACK
     LLAMA_VERSION="0.6.0-dev")

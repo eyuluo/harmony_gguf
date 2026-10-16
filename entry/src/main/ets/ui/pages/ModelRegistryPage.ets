@@ -42,7 +42,9 @@ export struct ModelRegistryPage {
                 this.modelCard(item)
               }, (item: ModelItem) => item.info.path + ':' +
                 (item.info.mmproj === null ? '' : item.info.mmproj.path) + ':' +
-                String(item.exists) + ':' + String(item.mmprojExists))
+                String(item.exists) + ':' + String(item.mmprojExists) + ':' +
+                String(this.appState.modelId) + ':' + this.appState.activeModelPath + ':' +
+                String(this.appState.loading) + ':' + this.appState.loadingModelPath)
             }
           }
           .width('100%')

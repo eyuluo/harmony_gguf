@@ -5,7 +5,8 @@ export struct HeaderBar {
   @ObjectLink appState: AppState;
 
   build() {
-    Row() {
+    Column() {
+      Row() {
       Column() {
         Row() {
           Image($r('app.media.icon'))
@@ -22,20 +23,6 @@ export struct HeaderBar {
           .fontSize(11)
           .fontColor('#5F6068')
           .margin({ left: 32, top: 3 })
-        if (this.appState.modelId > 0 && this.appState.accelerationSummary.length > 0) {
-          Text(this.appState.accelerationSummary)
-            .fontSize(11)
-            .fontColor('#B9B1FF')
-            .margin({ left: 32, top: 3 })
-            .onClick(() => {
-              this.getUIContext().showAlertDialog({
-                title: '实际计算设备',
-                message: this.appState.accelerationSummary + '\n' + this.appState.accelerationDetail +
-                  '\n统计自本次加载起累计，对话结束后更新。NPU 主要尝试长输入处理，单 token 输出使用 CPU。',
-                confirm: { value: '知道了', action: () => {} }
-              });
-            })
-        }
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -51,9 +38,37 @@ export struct HeaderBar {
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor('#2C2D33')
       .borderRadius(12)
+      }
+      .width('100%')
+      if (this.appState.modelId > 0 && this.appState.accelerationSummary.length > 0) {
+        Row({ space: 12 }) {
+          Text(this.appState.accelerationSummary)
+            .layoutWeight(1)
+            .fontSize(12)
+            .fontColor('#B9B1FF')
+            .onClick(() => {
+              this.getUIContext().showAlertDialog({
+                title: 'CPU / NPU 使用情况',
+                message: this.appState.accelerationDetail +
+                  '\n\nCPU 负责逐字生成，并处理未交给 NPU 的计算。' +
+                  'NPU 仅尝试支持的部分计算，例如较长输入或图片的处理；开启开关、检测到设备，都不代表已使用 NPU 或整体更快。' +
+                  '\n\n统计从本次模型加载开始累计，重新加载后清零。次数按计算部分计数，不是回复条数或 token 数。' +
+                  '\n\n页面在模型加载及应用生成任务结束后更新，生成中或 Serve 请求执行期间可能不是最新状态。',
+                confirm: { value: '知道了', action: () => {} }
+              });
+            })
+          Text('内容均由AI生成')
+            .fontSize(12)
+            .fontColor('#A5A5AE')
+            .textAlign(TextAlign.End)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .margin({ top: 6 })
+      }
     }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 24, bottom: 16 })
+    .padding({ left: 20, right: 20, top: 12, bottom: 8 })
     .backgroundColor('#18191D')
     .borderWidth({ bottom: 1 })
     .borderColor('#2C2D33')

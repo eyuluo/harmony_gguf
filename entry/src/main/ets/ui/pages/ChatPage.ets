@@ -5,6 +5,11 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SessionList } from '../components/SessionList';
 import { EmptyState, LoadingState, FailedState } from '../components/StateViews';
 
+interface TextAttachment {
+  name: string;
+  content: string;
+}
+
 @Component
 export struct ChatPage {
   @ObjectLink appState: AppState;
@@ -13,6 +18,7 @@ export struct ChatPage {
   private inference: InferenceService = InferenceService.getInstance();
   @State input: string = '';
   @State attachments: string[] = [];
+  @State documents: TextAttachment[] = [];
   @State selectingAttachment: boolean = false;
   @State attachmentError: string = '';
   private messageScroller: Scroller = new Scroller();
@@ -77,8 +83,7 @@ export struct ChatPage {
 
   @Builder
   detailTopBar() {
-    Column() {
-      Row() {
+    Row({ space: 8 }) {
         if (!this.isWide) {
           Row() {
             Image($r('app.media.ic_sessions'))
@@ -95,34 +100,27 @@ export struct ChatPage {
             .borderRadius(10)
             .onClick(() => { this.appState.showSessionList = true; })
         }
+      if (this.currentSession() !== null) {
+        Column({ space: 3 }) {
+          if (this.isGenerating()) {
+            Text(this.currentSession()!.status === SESSION_QUEUED ? '排队中' : '推理中')
+              .fontSize(11)
+              .fontColor('#B9B1FF')
+          } else {
+            Text(this.statsText(this.currentSession()!))
+              .width('100%')
+              .fontSize(11)
+              .fontColor('#999999')
+              .textAlign(TextAlign.End)
+          }
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.End)
+      } else {
         Blank()
       }
-      .width('100%')
-
-      if (this.currentSession() !== null && this.isGenerating()) {
-        Row() {
-          Text('●')
-            .fontSize(8)
-            .fontColor('#B9B1FF')
-            .margin({ right: 5 })
-          Text(this.currentSession()!.status === SESSION_QUEUED ? '等待推理槽位' : '推理中')
-            .fontSize(12)
-            .fontColor('#B9B1FF')
-        }
-          .width('100%')
-          .justifyContent(FlexAlign.End)
-          .margin({ top: 6 })
-      } else if (this.currentSession() !== null &&
-        (this.currentSession()!.lastStats !== null || this.currentSession()!.totalInputTokens > 0 ||
-        this.currentSession()!.totalOutputTokens > 0)) {
-        Text(this.statsText(this.currentSession()!))
-          .width('100%')
-          .fontSize(11)
-          .fontColor('#6C6C6C')
-          .textAlign(TextAlign.End)
-          .margin({ top: 6 })
-      }
     }
+    .alignItems(VerticalAlign.Center)
     .width('100%')
     .padding({ left: 20, right: 20, top: 14, bottom: 12 })
   }
@@ -273,8 +271,26 @@ export struct ChatPage {
           .width('100%')
           .margin({ bottom: 6 })
       }
-      TextInput({ placeholder: this.appState.modelId > 0 ? '输入消息...' : '请先加载模型', text: this.input })
+      ForEach(this.documents, (document: TextAttachment, index: number) => {
+        Row({ space: 8 }) {
+          Text(document.name)
+            .layoutWeight(1)
+            .fontSize(12)
+            .fontColor('#CFC9FF')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Button('移除')
+            .height(28)
+            .fontSize(11)
+            .backgroundColor('#2C2D33')
+            .onClick(() => { this.documents = this.documents.filter((item: TextAttachment, position: number) => position !== index); })
+        }
         .width('100%')
+        .margin({ bottom: 6 })
+      }, (document: TextAttachment, index: number) => `${index}-${document.name}`)
+      Row({ space: 8 }) {
+      TextInput({ placeholder: this.appState.modelId > 0 ? '输入消息...' : '请先加载模型', text: this.input })
+        .layoutWeight(1)
         .height(44)
         .enabled(this.appState.modelId > 0 && !this.appState.loading)
         .onChange((value: string) => this.input = value)
@@ -286,25 +302,23 @@ export struct ChatPage {
         .borderColor('#2C2D33')
         .borderRadius(12)
         .padding({ left: 16, right: 16 })
-      Row() {
-        Button(this.selectingAttachment ? '读取中' : '添加图片')
-          .width(96)
+        Button(this.selectingAttachment ? '…' : '+')
+          .width(44)
           .height(44)
           .padding({ left: 8, right: 8 })
           .enabled(this.appState.modelId > 0 && !this.appState.loading && !this.selectingAttachment &&
-            this.attachments.length < 4)
+            this.attachments.length + this.documents.length < 4)
           .onClick(() => this.selectAttachment())
           .backgroundColor('#1E1F24')
           .fontColor('#B9B1FF')
-          .fontSize(14)
+          .fontSize(24)
+          .accessibilityText(this.selectingAttachment ? '正在读取附件' : '添加图片或 TXT、MD 文本文件')
           .borderRadius(12)
-        Blank()
         Button(this.isGenerating() ? '停止' : '发送')
           .width(64)
           .height(44)
-          .margin({ left: 8 })
           .enabled(this.appState.modelId > 0 && (this.isGenerating() || !this.selectingAttachment) &&
-            (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0))
+             (this.isGenerating() || this.hasInput()))
           .onClick(() => {
             if (this.isGenerating()) {
               this.inference.stopGeneration(this.currentSession()!.id);
@@ -313,13 +327,13 @@ export struct ChatPage {
             }
           })
           .backgroundColor(this.appState.modelId > 0 &&
-            (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0) ? '#8A74FF' : '#35343F')
+            (this.isGenerating() || this.hasInput()) ? '#8A74FF' : '#35343F')
           .fontColor(this.appState.modelId > 0 &&
-            (this.isGenerating() || this.input.trim().length > 0 || this.attachments.length > 0) ? '#FFFFFF' : '#8F8D98')
+            (this.isGenerating() || this.hasInput()) ? '#FFFFFF' : '#8F8D98')
           .borderRadius(12)
       }
       .width('100%')
-      .margin({ top: 8 })
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: 14 })
@@ -347,7 +361,7 @@ export struct ChatPage {
 
   private send(): void {
     if (this.appState.modelId === 0 || this.selectingAttachment || this.isGenerating() ||
-      this.input.trim().length === 0 && this.attachments.length === 0) {
+      !this.hasInput()) {
       return;
     }
     let session = this.currentSession();
@@ -359,16 +373,20 @@ export struct ChatPage {
     if (session === null) {
       return;
     }
-    const prompt = this.input.trim();
+    let prompt = this.input.trim();
+    for (const document of this.documents) {
+      prompt += `${prompt.length > 0 ? '\n\n' : ''}附件：${document.name}\n${document.content}\n附件结束`;
+    }
     const atts = this.attachments.slice();
     this.input = '';
     this.attachments = [];
+    this.documents = [];
     this.attachmentError = '';
     this.inference.generate(session.id, prompt, atts);
   }
 
   async selectAttachment(): Promise<void> {
-    if (this.selectingAttachment || this.attachments.length >= 4) {
+    if (this.selectingAttachment || this.attachments.length + this.documents.length >= 4) {
       return;
     }
     const context = this.getUIContext().getHostContext();
@@ -379,11 +397,10 @@ export struct ChatPage {
     this.attachmentError = '';
     try {
       const uris = await new picker.DocumentViewPicker(context).select({
-        maxSelectNumber: 4 - this.attachments.length,
-        fileSuffixFilters: ['.png', '.jpg', '.jpeg', '.gif']
+        maxSelectNumber: 4 - this.attachments.length - this.documents.length,
+        fileSuffixFilters: ['图片和文本|.png,.jpg,.jpeg,.gif,.txt,.md']
       });
       if (uris.length > 0) {
-        const copied: string[] = [];
         const dir = context.filesDir + '/attachments';
         if (!fileIo.accessSync(dir)) {
           fileIo.mkdirSync(dir);
@@ -391,13 +408,42 @@ export struct ChatPage {
         for (let index = 0; index < uris.length; index++) {
           const source = fileIo.openSync(uris[index], fileIo.OpenMode.READ_ONLY);
           try {
+            const name = source.name;
+            const extension = name.substring(name.lastIndexOf('.')).toLowerCase();
+            if (extension === '.txt' || extension === '.md') {
+              const size = fileIo.statSync(source.fd).size;
+              if (size > 1024 * 1024) {
+                throw new Error('文本附件每个最大 1 MiB，请缩小文件后重试');
+              }
+              const textPath = `${dir}/text_${Date.now()}_${index}${extension}`;
+              try {
+                await fileIo.copyFile(source.fd, textPath);
+                if (fileIo.statSync(textPath).size > 1024 * 1024) {
+                  throw new Error('文本附件每个最大 1 MiB');
+                }
+                const content = await fileIo.readText(textPath, { encoding: 'utf-8' });
+                if (content.indexOf('\u0000') >= 0 || content.indexOf('\uFFFD') >= 0) {
+                  throw new Error('请使用 UTF-8 编码的 TXT 或 MD 文本文件');
+                }
+                if (content.trim().length === 0) {
+                  throw new Error('文本附件内容为空');
+                }
+                this.documents = this.documents.concat([{ name: name, content: content }]);
+              } finally {
+                if (fileIo.accessSync(textPath)) { fileIo.unlinkSync(textPath); }
+              }
+              continue;
+            }
+            if (extension !== '.png' && extension !== '.jpg' && extension !== '.jpeg' && extension !== '.gif') {
+              throw new Error('请选择 PNG、JPEG、GIF、TXT 或 MD 文件');
+            }
             const suffix = this.imageSuffix(source.name);
             const targetPath = `${dir}/image_${Date.now()}_${index}${suffix}`;
             const target = fileIo.openSync(targetPath,
               fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
             try {
               await fileIo.copyFile(source.fd, target.fd);
-              copied.push(targetPath);
+               this.attachments = this.attachments.concat([targetPath]);
             } finally {
               fileIo.closeSync(target);
             }
@@ -405,11 +451,10 @@ export struct ChatPage {
             fileIo.closeSync(source);
           }
         }
-        this.attachments = this.attachments.concat(copied);
       }
     } catch (error) {
-      hilog.error(0x0000, 'ChatPage', '图片读取失败：%{public}s', String(error));
-      this.attachmentError = '图片读取失败，请选择 PNG、JPEG 或 GIF 图片';
+      hilog.error(0x0000, 'ChatPage', '附件读取失败：%{public}s', String(error));
+      this.attachmentError = '附件读取失败：' + String(error);
     } finally {
       this.selectingAttachment = false;
     }
@@ -425,14 +470,17 @@ export struct ChatPage {
       suffix === '.webp' || suffix === '.gif' ? suffix : '.jpg';
   }
 
+  private hasInput(): boolean {
+    return this.input.trim().length > 0 || this.attachments.length > 0 || this.documents.length > 0;
+  }
+
   private statsText(session: Session): string {
     const s = session.lastStats;
-    const totals = `总输入：${session.totalInputTokens} tokens, 总输出：${session.totalOutputTokens} tokens`;
+    const totals = `总输入：${session.totalInputTokens} · 总输出：${session.totalOutputTokens} tokens`;
     if (s === null) {
-      return totals;
+      return `${totals}\n输入：— · 输出：—\nTTFT：— · 吞吐量：—`;
     }
-    return `${totals}\n` +
-      `输入：${s.promptTokens} tokens, 输出：${s.generatedTokens} tokens\n` +
-      `TTFT：${s.ttftMs.toFixed(0)} ms, 吞吐量：${s.tokensPerSecond.toFixed(1)} tokens/s`;
+    return `${totals}\n输入：${s.promptTokens} · 输出：${s.generatedTokens} tokens\n` +
+      `TTFT：${s.ttftMs.toFixed(0)} ms · 吞吐量：${s.tokensPerSecond.toFixed(1)} tokens/s`;
   }
 }
